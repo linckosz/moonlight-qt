@@ -540,24 +540,24 @@ bool Session::populateDecoderProperties(SDL_Window* window)
 
 Session::Session(NvComputer* computer, NvApp& app, StreamingPreferences *preferences)
     : m_Preferences(preferences ? preferences : StreamingPreferences::get()),
-      m_IsFullScreen(m_Preferences->windowMode != StreamingPreferences::WM_WINDOWED || !WMUtils::isRunningDesktopEnvironment()),
-      m_Computer(computer),
-      m_App(app),
-      m_Window(nullptr),
-      m_VideoDecoder(nullptr),
-      m_DecoderLock(0),
-      m_AudioMuted(false),
-      m_QtWindow(nullptr),
-      m_UnexpectedTermination(true), // Failure prior to streaming is unexpected
-      m_InputHandler(nullptr),
-      m_MouseEmulationRefCount(0),
-      m_FlushingWindowEventsRef(0),
-      m_AsyncConnectionSuccess(false),
-      m_PortTestResults(0),
-      m_OpusDecoder(nullptr),
-      m_AudioRenderer(nullptr),
-      m_AudioSampleCount(0),
-      m_DropAudioEndTime(0)
+    m_IsFullScreen(m_Preferences->windowMode != StreamingPreferences::WM_WINDOWED || !WMUtils::isRunningDesktopEnvironment()),
+    m_Computer(computer),
+    m_App(app),
+    m_Window(nullptr),
+    m_VideoDecoder(nullptr),
+    m_DecoderLock(0),
+    m_AudioMuted(false),
+    m_QtWindow(nullptr),
+    m_UnexpectedTermination(true), // Failure prior to streaming is unexpected
+    m_InputHandler(nullptr),
+    m_MouseEmulationRefCount(0),
+    m_FlushingWindowEventsRef(0),
+    m_AsyncConnectionSuccess(false),
+    m_PortTestResults(0),
+    m_OpusDecoder(nullptr),
+    m_AudioRenderer(nullptr),
+    m_AudioSampleCount(0),
+    m_DropAudioEndTime(0)
 {
 }
 
@@ -761,8 +761,8 @@ bool Session::initialize()
             }
         }
 
-#if 0
-        // TODO: Determine if AV1 is better depending on the decoder
+#if 0 \
+    // TODO: Determine if AV1 is better depending on the decoder
         if (getDecoderAvailability(testWindow,
                                    m_Preferences->videoDecoderSelection,
                                    m_Preferences->enableYUV444 ?
@@ -778,10 +778,10 @@ bool Session::initialize()
                 m_SupportedVideoFormats.deprioritizeByMask(VIDEO_FORMAT_MASK_AV1);
             }
         }
-#else
-        // Deprioritize AV1 unless we can't hardware decode HEVC and have HDR enabled.
-        // We want to keep AV1 at the top of the list for HDR with software decoding
-        // because dav1d is higher performance than FFmpeg's HEVC software decoder.
+#else \
+    // Deprioritize AV1 unless we can't hardware decode HEVC and have HDR enabled. \
+    // We want to keep AV1 at the top of the list for HDR with software decoding \
+    // because dav1d is higher performance than FFmpeg's HEVC software decoder.
         if (hevcDA == DecoderAvailability::Hardware || !m_Preferences->enableHdr) {
             m_SupportedVideoFormats.deprioritizeByMask(VIDEO_FORMAT_MASK_AV1);
         }
@@ -795,8 +795,8 @@ bool Session::initialize()
             // have fixup code for HEVC, just avoid it if GFE is too old.
             QVector<int> gfeVersion = NvHTTP::parseQuad(m_Computer->gfeVersion);
             if (gfeVersion.isEmpty() || // Very old versions don't have GfeVersion at all
-                    gfeVersion[0] < 3 ||
-                    (gfeVersion[0] == 3 && gfeVersion[1] < 11)) {
+                gfeVersion[0] < 3 ||
+                (gfeVersion[0] == 3 && gfeVersion[1] < 11)) {
                 SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                             "Disabling HEVC on macOS due to old GFE version");
                 m_SupportedVideoFormats.removeByMask(VIDEO_FORMAT_MASK_H265);
@@ -998,25 +998,25 @@ bool Session::validateLaunch(SDL_Window* testWindow)
     }
 
     if (!(m_SupportedVideoFormats & VIDEO_FORMAT_MASK_H265) &&
-            m_Preferences->videoDecoderSelection == StreamingPreferences::VDS_AUTO &&
-            getDecoderAvailability(testWindow,
-                                   m_Preferences->videoDecoderSelection,
-                                   VIDEO_FORMAT_H264,
-                                   m_StreamConfig.width,
-                                   m_StreamConfig.height,
-                                   m_StreamConfig.fps) != DecoderAvailability::Hardware) {
+        m_Preferences->videoDecoderSelection == StreamingPreferences::VDS_AUTO &&
+        getDecoderAvailability(testWindow,
+                               m_Preferences->videoDecoderSelection,
+                               VIDEO_FORMAT_H264,
+                               m_StreamConfig.width,
+                               m_StreamConfig.height,
+                               m_StreamConfig.fps) != DecoderAvailability::Hardware) {
 
         if (m_Preferences->videoCodecConfig == StreamingPreferences::VCC_FORCE_H264) {
             emitLaunchWarning(tr("Using software decoding due to your selection to force H.264 without GPU support. This may cause poor streaming performance."));
         }
         else {
             if (m_Computer->maxLumaPixelsHEVC == 0 &&
-                    getDecoderAvailability(testWindow,
-                                           m_Preferences->videoDecoderSelection,
-                                           VIDEO_FORMAT_H265,
-                                           m_StreamConfig.width,
-                                           m_StreamConfig.height,
-                                           m_StreamConfig.fps) == DecoderAvailability::Hardware) {
+                getDecoderAvailability(testWindow,
+                                       m_Preferences->videoDecoderSelection,
+                                       VIDEO_FORMAT_H265,
+                                       m_StreamConfig.width,
+                                       m_StreamConfig.height,
+                                       m_StreamConfig.fps) == DecoderAvailability::Hardware) {
                 emitLaunchWarning(tr("Your host PC and client PC don't support the same video codecs. This may cause poor streaming performance."));
             }
             else {
@@ -1054,8 +1054,8 @@ bool Session::validateLaunch(SDL_Window* testWindow)
                     m_SupportedVideoFormats.removeByMask(VIDEO_FORMAT_AV1_MAIN10);
                 }
                 else if (da == DecoderAvailability::Software &&
-                           m_Preferences->videoDecoderSelection != StreamingPreferences::VDS_FORCE_SOFTWARE &&
-                           !displayedHdrSoftwareDecodeWarning) {
+                         m_Preferences->videoDecoderSelection != StreamingPreferences::VDS_FORCE_SOFTWARE &&
+                         !displayedHdrSoftwareDecodeWarning) {
                     emitLaunchWarning(tr("Using software decoding due to your selection to force HDR without GPU support. This may cause poor streaming performance."));
                     displayedHdrSoftwareDecodeWarning = true;
                 }
@@ -1182,13 +1182,13 @@ bool Session::validateLaunch(SDL_Window* testWindow)
     }
 
     if (m_Preferences->videoDecoderSelection == StreamingPreferences::VDS_FORCE_HARDWARE &&
-            !(m_SupportedVideoFormats & VIDEO_FORMAT_MASK_10BIT) && // HDR was already checked for hardware decode support above
-            getDecoderAvailability(testWindow,
-                                   m_Preferences->videoDecoderSelection,
-                                   m_SupportedVideoFormats.front(),
-                                   m_StreamConfig.width,
-                                   m_StreamConfig.height,
-                                   m_StreamConfig.fps) != DecoderAvailability::Hardware) {
+        !(m_SupportedVideoFormats & VIDEO_FORMAT_MASK_10BIT) && // HDR was already checked for hardware decode support above
+        getDecoderAvailability(testWindow,
+                               m_Preferences->videoDecoderSelection,
+                               m_SupportedVideoFormats.front(),
+                               m_StreamConfig.width,
+                               m_StreamConfig.height,
+                               m_StreamConfig.fps) != DecoderAvailability::Hardware) {
         if (m_Preferences->videoCodecConfig == StreamingPreferences::VCC_AUTO) {
             emit displayLaunchError(tr("Your selection to force hardware decoding cannot be satisfied due to missing hardware decoding support on this PC's GPU."));
         }
@@ -1225,8 +1225,8 @@ private:
     {
         // Only quit the running app if our session terminated gracefully
         bool shouldQuit =
-                !m_Session->m_UnexpectedTermination &&
-                m_Session->m_Preferences->quitAppAfter;
+            !m_Session->m_UnexpectedTermination &&
+            m_Session->m_Preferences->quitAppAfter;
 
         // Notify the UI
         if (shouldQuit) {
@@ -1380,7 +1380,7 @@ void Session::updateOptimalWindowDisplayMode()
     for (int i = 0; i < SDL_GetNumDisplayModes(displayIndex); i++) {
         if (SDL_GetDisplayMode(displayIndex, i, &mode) == 0) {
             if (mode.w == desktopMode.w && mode.h == desktopMode.h &&
-                    mode.refresh_rate % m_StreamConfig.fps == 0) {
+                mode.refresh_rate % m_StreamConfig.fps == 0) {
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                             "Found display mode with desktop resolution: %dx%dx%d",
                             mode.w, mode.h, mode.refresh_rate);
@@ -1403,12 +1403,12 @@ void Session::updateOptimalWindowDisplayMode()
             if (SDL_GetDisplayMode(displayIndex, i, &mode) == 0) {
                 float modeAspectRatio = (float)mode.w / (float)mode.h;
                 if (mode.w >= m_ActiveVideoWidth && mode.h >= m_ActiveVideoHeight &&
-                        mode.refresh_rate % m_StreamConfig.fps == 0) {
+                    mode.refresh_rate % m_StreamConfig.fps == 0) {
                     SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                                 "Found display mode with video resolution: %dx%dx%d",
                                 mode.w, mode.h, mode.refresh_rate);
                     if (mode.refresh_rate >= bestMode.refresh_rate &&
-                            (bestModeAspectRatio == 0 || fabs(videoAspectRatio - modeAspectRatio) <= fabs(videoAspectRatio - bestModeAspectRatio))) {
+                        (bestModeAspectRatio == 0 || fabs(videoAspectRatio - modeAspectRatio) <= fabs(videoAspectRatio - bestModeAspectRatio))) {
                         bestMode = mode;
                         bestModeAspectRatio = modeAspectRatio;
                     }
@@ -1532,7 +1532,7 @@ bool Session::startConnectionAsync()
         enableGameOptimizations = false;
         for (const NvDisplayMode &mode : m_Computer->displayModes) {
             if (mode.width == m_StreamConfig.width &&
-                    mode.height == m_StreamConfig.height) {
+                mode.height == m_StreamConfig.height) {
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                             "Found host supported resolution: %dx%d",
                             mode.width, mode.height);
@@ -1808,8 +1808,8 @@ void Session::execInternal()
         if (m_QtWindow->windowStates() & Qt::WindowMinimized) {
             defaultWindowFlags |= SDL_WINDOW_MINIMIZED;
         }
-#else
-        // Qt 5.9 only supports a single state at a time
+#else \
+    // Qt 5.9 only supports a single state at a time
         if (m_QtWindow->windowState() == Qt::WindowMaximized) {
             defaultWindowFlags |= SDL_WINDOW_MAXIMIZED;
         }
@@ -1819,8 +1819,8 @@ void Session::execInternal()
 #endif
     }
 
-    // We use only the computer name on macOS to match Apple conventions where the
-    // app name is featured in the menu bar and the document name is in the title bar.
+// We use only the computer name on macOS to match Apple conventions where the
+// app name is featured in the menu bar and the document name is in the title bar.
 #ifdef Q_OS_DARWIN
     std::string windowName = QString(m_Computer->name).toStdString();
 #else
@@ -1857,7 +1857,7 @@ void Session::execInternal()
         }
     }
 
-    // HACK: Remove once proper Dark Mode support lands in SDL
+// HACK: Remove once proper Dark Mode support lands in SDL
 #ifdef Q_OS_WIN32
     if (m_QtWindow != nullptr) {
         BOOL darkModeEnabled;
@@ -1988,17 +1988,17 @@ void Session::execInternal()
             presence.runCallbacks();
             continue;
         }
-#else
-        // We explicitly use SDL_PollEvent() and SDL_Delay() because
-        // SDL_WaitEvent() has an internal SDL_Delay(10) inside which
-        // blocks this thread too long for high polling rate mice and high
-        // refresh rate displays.
+#else \
+    // We explicitly use SDL_PollEvent() and SDL_Delay() because \
+    // SDL_WaitEvent() has an internal SDL_Delay(10) inside which \
+    // blocks this thread too long for high polling rate mice and high \
+    // refresh rate displays.
         if (!SDL_PollEvent(&event)) {
 #ifndef STEAM_LINK
             SDL_Delay(1);
-#else
-            // Waking every 1 ms to process input is too much for the low performance
-            // ARM core in the Steam Link, so we will wait 10 ms instead.
+#else \
+    // Waking every 1 ms to process input is too much for the low performance \
+    // ARM core in the Steam Link, so we will wait 10 ms instead.
             SDL_Delay(10);
 #endif
             presence.runCallbacks();
@@ -2087,8 +2087,8 @@ void Session::execInternal()
                 if (event.window.event != SDL_WINDOWEVENT_DISPLAY_CHANGED) {
                     break;
                 }
-#else
-                // Prior to SDL 2.0.18, we must check the display index for each window event
+#else \
+    // Prior to SDL 2.0.18, we must check the display index for each window event
                 if (SDL_GetWindowDisplayIndex(m_Window) == currentDisplayIndex) {
                     break;
                 }
@@ -2140,8 +2140,8 @@ void Session::execInternal()
                     // this display.
                     SDL_DisplayMode oldMode, newMode;
                     if (SDL_GetCurrentDisplayMode(currentDisplayIndex, &oldMode) < 0 ||
-                            SDL_GetCurrentDisplayMode(newDisplayIndex, &newMode) < 0 ||
-                            oldMode.refresh_rate != newMode.refresh_rate) {
+                        SDL_GetCurrentDisplayMode(newDisplayIndex, &newMode) < 0 ||
+                        oldMode.refresh_rate != newMode.refresh_rate) {
                         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                                     "Forcing renderer recreation due to refresh rate change between displays");
                         forceRecreation = true;

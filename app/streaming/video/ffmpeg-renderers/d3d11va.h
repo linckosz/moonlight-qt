@@ -121,7 +121,7 @@ private:
     Microsoft::WRL::ComPtr<ID3D11Texture2D> m_VideoTexture;
     Microsoft::WRL::ComPtr<ID3D11Texture2D> m_EnhancedTexture;
 
-    // Only index 0 is valid if !m_BindDecoderOutputTextures
+// Only index 0 is valid if !m_BindDecoderOutputTextures
 #define DECODER_BUFFER_POOL_SIZE 17
     std::array<std::array<Microsoft::WRL::ComPtr<ID3D11ShaderResourceView>, 2>, DECODER_BUFFER_POOL_SIZE> m_VideoTextureResourceViews;
 
