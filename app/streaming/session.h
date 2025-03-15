@@ -62,17 +62,17 @@ public:
         int mask = 0;
 
         const QMap<int, int> mapping = {
-            {SCM_H264, VIDEO_FORMAT_H264},
-            {SCM_H264_HIGH8_444, VIDEO_FORMAT_H264_HIGH8_444},
-            {SCM_HEVC, VIDEO_FORMAT_H265},
-            {SCM_HEVC_MAIN10, VIDEO_FORMAT_H265_MAIN10},
-            {SCM_HEVC_REXT8_444, VIDEO_FORMAT_H265_REXT8_444},
-            {SCM_HEVC_REXT10_444, VIDEO_FORMAT_H265_REXT10_444},
-            {SCM_AV1_MAIN8, VIDEO_FORMAT_AV1_MAIN8},
-            {SCM_AV1_MAIN10, VIDEO_FORMAT_AV1_MAIN10},
-            {SCM_AV1_HIGH8_444, VIDEO_FORMAT_AV1_HIGH8_444},
-            {SCM_AV1_HIGH10_444, VIDEO_FORMAT_AV1_HIGH10_444},
-        };
+                                        {SCM_H264, VIDEO_FORMAT_H264},
+                                        {SCM_H264_HIGH8_444, VIDEO_FORMAT_H264_HIGH8_444},
+                                        {SCM_HEVC, VIDEO_FORMAT_H265},
+                                        {SCM_HEVC_MAIN10, VIDEO_FORMAT_H265_MAIN10},
+                                        {SCM_HEVC_REXT8_444, VIDEO_FORMAT_H265_REXT8_444},
+                                        {SCM_HEVC_REXT10_444, VIDEO_FORMAT_H265_REXT10_444},
+                                        {SCM_AV1_MAIN8, VIDEO_FORMAT_AV1_MAIN8},
+                                        {SCM_AV1_MAIN10, VIDEO_FORMAT_AV1_MAIN10},
+                                        {SCM_AV1_HIGH8_444, VIDEO_FORMAT_AV1_HIGH8_444},
+                                        {SCM_AV1_HIGH10_444, VIDEO_FORMAT_AV1_HIGH10_444},
+                                        };
 
         for (QMap<int, int>::const_iterator it = mapping.cbegin(); it != mapping.cend(); ++it) {
             if (serverCodecModes & it.key()) {
@@ -108,9 +108,9 @@ public:
     Q_INVOKABLE void exec(QWindow* qtWindow);
 
     static
-    void getDecoderInfo(SDL_Window* window,
-                        bool& isHardwareAccelerated, bool& isFullScreenOnly,
-                        bool& isHdrSupported, QSize& maxResolution);
+        void getDecoderInfo(SDL_Window* window,
+                       bool& isHardwareAccelerated, bool& isFullScreenOnly,
+                       bool& isHdrSupported, QSize& maxResolution);
 
     static Session* get()
     {
@@ -179,66 +179,66 @@ private:
     };
 
     static
-    DecoderAvailability getDecoderAvailability(SDL_Window* window,
-                                               StreamingPreferences::VideoDecoderSelection vds,
-                                               int videoFormat, int width, int height, int frameRate);
+        DecoderAvailability getDecoderAvailability(SDL_Window* window,
+                               StreamingPreferences::VideoDecoderSelection vds,
+                               int videoFormat, int width, int height, int frameRate);
 
     static
-    bool chooseDecoder(StreamingPreferences::VideoDecoderSelection vds,
-                       SDL_Window* window, int videoFormat, int width, int height,
-                       int frameRate, bool enableVsync, bool enableFramePacing,
-                       bool testOnly,
-                       IVideoDecoder*& chosenDecoder);
+        bool chooseDecoder(StreamingPreferences::VideoDecoderSelection vds,
+                      SDL_Window* window, int videoFormat, int width, int height,
+                      int frameRate, bool enableVsync, bool enableFramePacing,
+                      bool enableVideoEnhancement, bool testOnly,
+                      IVideoDecoder*& chosenDecoder);
 
     static
-    void clStageStarting(int stage);
+        void clStageStarting(int stage);
 
     static
-    void clStageFailed(int stage, int errorCode);
+        void clStageFailed(int stage, int errorCode);
 
     static
-    void clConnectionTerminated(int errorCode);
+        void clConnectionTerminated(int errorCode);
 
     static
-    void clLogMessage(const char* format, ...);
+        void clLogMessage(const char* format, ...);
 
     static
-    void clRumble(unsigned short controllerNumber, unsigned short lowFreqMotor, unsigned short highFreqMotor);
+        void clRumble(unsigned short controllerNumber, unsigned short lowFreqMotor, unsigned short highFreqMotor);
 
     static
-    void clConnectionStatusUpdate(int connectionStatus);
+        void clConnectionStatusUpdate(int connectionStatus);
 
     static
-    void clSetHdrMode(bool enabled);
+        void clSetHdrMode(bool enabled);
 
     static
-    void clRumbleTriggers(uint16_t controllerNumber, uint16_t leftTrigger, uint16_t rightTrigger);
+        void clRumbleTriggers(uint16_t controllerNumber, uint16_t leftTrigger, uint16_t rightTrigger);
 
     static
-    void clSetMotionEventState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz);
+        void clSetMotionEventState(uint16_t controllerNumber, uint8_t motionType, uint16_t reportRateHz);
 
     static
-    void clSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
+        void clSetControllerLED(uint16_t controllerNumber, uint8_t r, uint8_t g, uint8_t b);
 
     static
-    int arInit(int audioConfiguration,
+        int arInit(int audioConfiguration,
                const POPUS_MULTISTREAM_CONFIGURATION opusConfig,
                void* arContext, int arFlags);
 
     static
-    void arCleanup();
+        void arCleanup();
 
     static
-    void arDecodeAndPlaySample(char* sampleData, int sampleLength);
+        void arDecodeAndPlaySample(char* sampleData, int sampleLength);
 
     static
-    int drSetup(int videoFormat, int width, int height, int frameRate, void*, int);
+        int drSetup(int videoFormat, int width, int height, int frameRate, void*, int);
 
     static
-    void drCleanup();
+        void drCleanup();
 
     static
-    int drSubmitDecodeUnit(PDECODE_UNIT du);
+        int drSubmitDecodeUnit(PDECODE_UNIT du);
 
     StreamingPreferences* m_Preferences;
     bool m_IsFullScreen;

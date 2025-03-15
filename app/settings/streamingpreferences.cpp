@@ -33,6 +33,7 @@
 #define SER_ABSTOUCHMODE "abstouchmode"
 #define SER_STARTWINDOWED "startwindowed"
 #define SER_FRAMEPACING "framepacing"
+#define SER_VIDEOENHANCEMENT "videoenhancement"
 #define SER_CONNWARNINGS "connwarnings"
 #define SER_UIDISPLAYMODE "uidisplaymode"
 #define SER_RICHPRESENCE "richpresence"
@@ -131,6 +132,7 @@ void StreamingPreferences::reload()
     absoluteMouseMode = settings.value(SER_ABSMOUSEMODE, false).toBool();
     absoluteTouchMode = settings.value(SER_ABSTOUCHMODE, true).toBool();
     framePacing = settings.value(SER_FRAMEPACING, false).toBool();
+    videoEnhancement = settings.value(SER_VIDEOENHANCEMENT, false).toBool();
     connectionWarnings = settings.value(SER_CONNWARNINGS, true).toBool();
     richPresence = settings.value(SER_RICHPRESENCE, true).toBool();
     gamepadMouse = settings.value(SER_GAMEPADMOUSE, true).toBool();
@@ -145,20 +147,20 @@ void StreamingPreferences::reload()
     keepAwake = settings.value(SER_KEEPAWAKE, true).toBool();
     enableHdr = settings.value(SER_HDR, false).toBool();
     captureSysKeysMode = static_cast<CaptureSysKeysMode>(settings.value(SER_CAPTURESYSKEYS,
-                                                         static_cast<int>(CaptureSysKeysMode::CSK_OFF)).toInt());
+                                                                        static_cast<int>(CaptureSysKeysMode::CSK_OFF)).toInt());
     audioConfig = static_cast<AudioConfig>(settings.value(SER_AUDIOCFG,
-                                                  static_cast<int>(AudioConfig::AC_STEREO)).toInt());
+                                                          static_cast<int>(AudioConfig::AC_STEREO)).toInt());
     videoCodecConfig = static_cast<VideoCodecConfig>(settings.value(SER_VIDEOCFG,
-                                                  static_cast<int>(VideoCodecConfig::VCC_AUTO)).toInt());
+                                                                    static_cast<int>(VideoCodecConfig::VCC_AUTO)).toInt());
     videoDecoderSelection = static_cast<VideoDecoderSelection>(settings.value(SER_VIDEODEC,
-                                                  static_cast<int>(VideoDecoderSelection::VDS_AUTO)).toInt());
+                                                                              static_cast<int>(VideoDecoderSelection::VDS_AUTO)).toInt());
     windowMode = static_cast<WindowMode>(settings.value(SER_WINDOWMODE,
                                                         // Try to load from the old preference value too
                                                         static_cast<int>(settings.value(SER_FULLSCREEN, true).toBool() ?
                                                                              recommendedFullScreenMode : WindowMode::WM_WINDOWED)).toInt());
     uiDisplayMode = static_cast<UIDisplayMode>(settings.value(SER_UIDISPLAYMODE,
-                                               static_cast<int>(settings.value(SER_STARTWINDOWED, true).toBool() ? UIDisplayMode::UI_WINDOWED
-                                                                                                                 : UIDisplayMode::UI_MAXIMIZED)).toInt());
+                                                              static_cast<int>(settings.value(SER_STARTWINDOWED, true).toBool() ? UIDisplayMode::UI_WINDOWED
+                                                                                                                                : UIDisplayMode::UI_MAXIMIZED)).toInt());
     language = static_cast<Language>(settings.value(SER_LANGUAGE,
                                                     static_cast<int>(Language::LANG_AUTO)).toInt());
 
@@ -224,8 +226,8 @@ bool StreamingPreferences::retranslate()
         // This is a dynamic retranslation from the settings page.
         // We have to kick the QML engine into reloading our text.
         m_QmlEngine->retranslate();
-#else
-        // Unreachable below Qt 5.10 due to the check above
+#else \
+    // Unreachable below Qt 5.10 due to the check above
         Q_ASSERT(false);
 #endif
     }
@@ -321,6 +323,7 @@ void StreamingPreferences::save()
     settings.setValue(SER_ABSMOUSEMODE, absoluteMouseMode);
     settings.setValue(SER_ABSTOUCHMODE, absoluteTouchMode);
     settings.setValue(SER_FRAMEPACING, framePacing);
+    settings.setValue(SER_VIDEOENHANCEMENT, videoEnhancement);
     settings.setValue(SER_CONNWARNINGS, connectionWarnings);
     settings.setValue(SER_RICHPRESENCE, richPresence);
     settings.setValue(SER_GAMEPADMOUSE, gamepadMouse);
@@ -357,14 +360,14 @@ int StreamingPreferences::getDefaultBitrate(int width, int height, int fps, bool
         int pixels;
         int factor;
     } resTable[] {
-        { 640 * 360, 1 },
-        { 854 * 480, 2 },
-        { 1280 * 720, 5 },
-        { 1920 * 1080, 10 },
-        { 2560 * 1440, 20 },
-        { 3840 * 2160, 40 },
-        { -1, -1 },
-    };
+                 { 640 * 360, 1 },
+                 { 854 * 480, 2 },
+                 { 1280 * 720, 5 },
+                 { 1920 * 1080, 10 },
+                 { 2560 * 1440, 20 },
+                 { 3840 * 2160, 40 },
+                 { -1, -1 },
+                 };
 
     // Calculate the resolution factor by linear interpolation of the resolution table
     float resolutionFactor;

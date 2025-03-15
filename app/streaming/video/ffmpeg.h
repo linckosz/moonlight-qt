@@ -7,6 +7,7 @@
 #include "decoder.h"
 #include "ffmpeg-renderers/renderer.h"
 #include "ffmpeg-renderers/pacer/pacer.h"
+#include "streaming/video/videoenhancement.h"
 
 extern "C" {
 #include <libavcodec/avcodec.h>
@@ -47,13 +48,13 @@ private:
     bool createFrontendRenderer(PDECODER_PARAMETERS params, bool useAlternateFrontend);
 
     static
-    bool isDecoderMatchForParams(const AVCodec *decoder, PDECODER_PARAMETERS params);
+        bool isDecoderMatchForParams(const AVCodec *decoder, PDECODER_PARAMETERS params);
 
     static
-    bool isZeroCopyFormat(AVPixelFormat format);
+        bool isZeroCopyFormat(AVPixelFormat format);
 
     static
-    int getAVCodecCapabilities(const AVCodec *codec);
+        int getAVCodecCapabilities(const AVCodec *codec);
 
     bool tryInitializeHwAccelDecoder(PDECODER_PARAMETERS params,
                                      int pass,
@@ -83,8 +84,8 @@ private:
     void writeBuffer(PLENTRY entry, int& offset);
 
     static
-    enum AVPixelFormat ffGetFormat(AVCodecContext* context,
-                                   const enum AVPixelFormat* pixFmts);
+        enum AVPixelFormat ffGetFormat(AVCodecContext* context,
+                    const enum AVPixelFormat* pixFmts);
 
     void decoderThreadProc();
 
@@ -114,6 +115,7 @@ private:
     bool m_TestOnly;
     SDL_Thread* m_DecoderThread;
     SDL_atomic_t m_DecoderThreadShouldQuit;
+    VideoEnhancement* m_VideoEnhancement;
 
     // Data buffers in the queued DU are not valid
     QQueue<DECODE_UNIT> m_FrameInfoQueue;

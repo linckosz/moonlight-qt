@@ -59,13 +59,13 @@ public:
 
     void showMessage(QString message, MessageType type) const
     {
-    #if defined(Q_OS_WIN32)
+#if defined(Q_OS_WIN32)
         UINT flags = MB_OK | MB_TOPMOST | MB_SETFOREGROUND;
         flags |= (type == Info ? MB_ICONINFORMATION : MB_ICONERROR);
         QString title = "Moonlight";
         MessageBoxW(nullptr, reinterpret_cast<const wchar_t *>(message.utf16()),
                     reinterpret_cast<const wchar_t *>(title.utf16()), flags);
-    #endif
+#endif
         message = message.endsWith('\n') ? message : message + '\n';
         fputs(qPrintable(message), type == Info ? stdout : stderr);
     }
@@ -170,7 +170,7 @@ GlobalCommandLineParser::ParseResult GlobalCommandLineParser::parse(const QStrin
         "  pair            Pair a new host\n"
         "\n"
         "See 'moonlight <action> --help' for help of specific action."
-    );
+        );
     parser.addPositionalArgument("action", "Action to execute", "<action>");
     parser.parse(args);
     auto posArgs = parser.positionalArguments();
@@ -221,7 +221,7 @@ void QuitCommandLineParser::parse(const QStringList &args)
     parser.setApplicationDescription(
         "\n"
         "Quit the currently running app on the given host."
-    );
+        );
     parser.addPositionalArgument("quit", "quit running app");
     parser.addPositionalArgument("host", "Host computer name, UUID, or IP address", "<host>");
 
@@ -263,7 +263,7 @@ void PairCommandLineParser::parse(const QStringList &args)
     parser.setApplicationDescription(
         "\n"
         "Pair with the specified host."
-    );
+        );
     parser.addPositionalArgument("pair", "pair host");
     parser.addPositionalArgument("host", "Host computer name, UUID, or IP address", "<host>");
     parser.addValueOption("pin", "4 digit pairing PIN");
@@ -303,31 +303,31 @@ QString PairCommandLineParser::getPredefinedPin() const
 StreamCommandLineParser::StreamCommandLineParser()
 {
     m_WindowModeMap = {
-        {"fullscreen", StreamingPreferences::WM_FULLSCREEN},
-        {"windowed",   StreamingPreferences::WM_WINDOWED},
-        {"borderless", StreamingPreferences::WM_FULLSCREEN_DESKTOP},
-    };
+                       {"fullscreen", StreamingPreferences::WM_FULLSCREEN},
+                       {"windowed",   StreamingPreferences::WM_WINDOWED},
+                       {"borderless", StreamingPreferences::WM_FULLSCREEN_DESKTOP},
+                       };
     m_AudioConfigMap = {
-        {"stereo",       StreamingPreferences::AC_STEREO},
-        {"5.1-surround", StreamingPreferences::AC_51_SURROUND},
-        {"7.1-surround", StreamingPreferences::AC_71_SURROUND},
-    };
+                        {"stereo",       StreamingPreferences::AC_STEREO},
+                        {"5.1-surround", StreamingPreferences::AC_51_SURROUND},
+                        {"7.1-surround", StreamingPreferences::AC_71_SURROUND},
+                        };
     m_VideoCodecMap = {
-        {"auto",  StreamingPreferences::VCC_AUTO},
-        {"H.264", StreamingPreferences::VCC_FORCE_H264},
-        {"HEVC",  StreamingPreferences::VCC_FORCE_HEVC},
-        {"AV1", StreamingPreferences::VCC_FORCE_AV1},
-    };
+                       {"auto",  StreamingPreferences::VCC_AUTO},
+                       {"H.264", StreamingPreferences::VCC_FORCE_H264},
+                       {"HEVC",  StreamingPreferences::VCC_FORCE_HEVC},
+                       {"AV1", StreamingPreferences::VCC_FORCE_AV1},
+                       };
     m_VideoDecoderMap = {
-        {"auto",     StreamingPreferences::VDS_AUTO},
-        {"software", StreamingPreferences::VDS_FORCE_SOFTWARE},
-        {"hardware", StreamingPreferences::VDS_FORCE_HARDWARE},
-    };
+                         {"auto",     StreamingPreferences::VDS_AUTO},
+                         {"software", StreamingPreferences::VDS_FORCE_SOFTWARE},
+                         {"hardware", StreamingPreferences::VDS_FORCE_HARDWARE},
+                         };
     m_CaptureSysKeysModeMap = {
-        {"never",      StreamingPreferences::CSK_OFF},
-        {"fullscreen", StreamingPreferences::CSK_FULLSCREEN},
-        {"always",     StreamingPreferences::CSK_ALWAYS},
-    };
+                               {"never",      StreamingPreferences::CSK_OFF},
+                               {"fullscreen", StreamingPreferences::CSK_FULLSCREEN},
+                               {"always",     StreamingPreferences::CSK_ALWAYS},
+                               };
 }
 
 StreamCommandLineParser::~StreamCommandLineParser()
@@ -341,7 +341,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.setApplicationDescription(
         "\n"
         "Starts directly streaming a given app."
-    );
+        );
     parser.addPositionalArgument("stream", "Start stream");
 
     // Add other arguments and options
@@ -367,6 +367,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addToggleOption("game-optimization", "game optimizations");
     parser.addToggleOption("audio-on-host", "audio on host PC");
     parser.addToggleOption("frame-pacing", "frame pacing");
+    parser.addToggleOption("video-enhancement", "Enhance video with AI");
     parser.addToggleOption("mute-on-focus-loss", "mute audio when Moonlight window loses focus");
     parser.addToggleOption("background-gamepad", "background gamepad input");
     parser.addToggleOption("reverse-scroll-direction", "inverted scroll direction");
@@ -474,6 +475,9 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     // Resolve --frame-pacing and --no-frame-pacing options
     preferences->framePacing = parser.getToggleOptionValue("frame-pacing", preferences->framePacing);
 
+    // Resolve --video-enhancement and --no-video-enhancement options
+    preferences->videoEnhancement = parser.getToggleOptionValue("video-enhancement", preferences->videoEnhancement);
+
     // Resolve --mute-on-focus-loss and --no-mute-on-focus-loss options
     preferences->muteOnFocusLoss = parser.getToggleOptionValue("mute-on-focus-loss", preferences->muteOnFocusLoss);
 
@@ -497,7 +501,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
 
     // Resolve --yuv444 and --no-yuv444 options
     preferences->enableYUV444 = parser.getToggleOptionValue("yuv444", preferences->enableYUV444);
-    
+
     // Resolve --capture-system-keys option
     if (parser.isSet("capture-system-keys")) {
         preferences->captureSysKeysMode = mapValue(m_CaptureSysKeysModeMap, parser.getChoiceOptionValue("capture-system-keys"));
@@ -555,7 +559,7 @@ void ListCommandLineParser::parse(const QStringList &args)
     parser.setApplicationDescription(
         "\n"
         "List the available apps on the given host."
-    );
+        );
     parser.addPositionalArgument("list", "list available apps");
     parser.addPositionalArgument("host", "Host computer name, UUID, or IP address", "<host>");
 

@@ -84,7 +84,7 @@ static const QMap<QString, int> k_NonHwaccelCodecInfo = {
 bool FFmpegVideoDecoder::isHardwareAccelerated()
 {
     return m_HwDecodeCfg != nullptr ||
-            (getAVCodecCapabilities(m_VideoDecoderCtx->codec) & AV_CODEC_CAP_HARDWARE) != 0;
+           (getAVCodecCapabilities(m_VideoDecoderCtx->codec) & AV_CODEC_CAP_HARDWARE) != 0;
 }
 
 bool FFmpegVideoDecoder::isAlwaysFullScreen()
@@ -208,7 +208,7 @@ enum AVPixelFormat FFmpegVideoDecoder::ffGetFormat(AVCodecContext* context,
     if (decoder->m_HwDecodeCfg == nullptr && decoder->m_RequiredPixelFormat == AV_PIX_FMT_NONE) {
         for (p = pixFmts; *p != AV_PIX_FMT_NONE; p++) {
             if (decoder->m_FrontendRenderer->isPixelFormatSupported(decoder->m_VideoFormat, *p) &&
-                    decoder->m_BackendRenderer->prepareDecoderContextInGetFormat(context, *p)) {
+                decoder->m_BackendRenderer->prepareDecoderContextInGetFormat(context, *p)) {
                 return *p;
             }
         }
@@ -219,22 +219,23 @@ enum AVPixelFormat FFmpegVideoDecoder::ffGetFormat(AVCodecContext* context,
 
 FFmpegVideoDecoder::FFmpegVideoDecoder(bool testOnly)
     : m_Pkt(av_packet_alloc()),
-      m_VideoDecoderCtx(nullptr),
-      m_RequiredPixelFormat(AV_PIX_FMT_NONE),
-      m_DecodeBuffer(1024 * 1024, 0),
-      m_HwDecodeCfg(nullptr),
-      m_BackendRenderer(nullptr),
-      m_FrontendRenderer(nullptr),
-      m_ConsecutiveFailedDecodes(0),
-      m_Pacer(nullptr),
-      m_FramesIn(0),
-      m_FramesOut(0),
-      m_LastFrameNumber(0),
-      m_StreamFps(0),
-      m_VideoFormat(0),
-      m_NeedsSpsFixup(false),
-      m_TestOnly(testOnly),
-      m_DecoderThread(nullptr)
+    m_VideoDecoderCtx(nullptr),
+    m_RequiredPixelFormat(AV_PIX_FMT_NONE),
+    m_DecodeBuffer(1024 * 1024, 0),
+    m_HwDecodeCfg(nullptr),
+    m_BackendRenderer(nullptr),
+    m_FrontendRenderer(nullptr),
+    m_ConsecutiveFailedDecodes(0),
+    m_Pacer(nullptr),
+    m_FramesIn(0),
+    m_FramesOut(0),
+    m_LastFrameNumber(0),
+    m_StreamFps(0),
+    m_VideoFormat(0),
+    m_NeedsSpsFixup(false),
+    m_TestOnly(testOnly),
+    m_DecoderThread(nullptr),
+    m_VideoEnhancement(&VideoEnhancement::getInstance())
 {
     SDL_zero(m_ActiveWndVideoStats);
     SDL_zero(m_LastWndVideoStats);
@@ -314,7 +315,7 @@ void FFmpegVideoDecoder::reset()
 bool FFmpegVideoDecoder::initializeRendererInternal(IFFmpegRenderer* renderer, PDECODER_PARAMETERS params)
 {
     if (renderer->getRendererType() != IFFmpegRenderer::RendererType::Unknown &&
-            m_FailedRenderers.find(renderer->getRendererType()) != m_FailedRenderers.end()) {
+        m_FailedRenderers.find(renderer->getRendererType()) != m_FailedRenderers.end()) {
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                     "Skipping '%s' due to prior failure",
                     renderer->getRendererName());
@@ -655,7 +656,7 @@ bool FFmpegVideoDecoder::completeInitialization(const AVCodec* decoder, enum AVP
     }
     else {
         if ((params->videoFormat & VIDEO_FORMAT_MASK_H264) &&
-                !(m_BackendRenderer->getDecoderCapabilities() & CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC)) {
+            !(m_BackendRenderer->getDecoderCapabilities() & CAPABILITY_REFERENCE_FRAME_INVALIDATION_AVC)) {
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,
                         "Using H.264 SPS fixup");
             m_NeedsSpsFixup = true;
@@ -821,15 +822,22 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
         break;
     }
 
+    // Display if AI-Enhancement is enabled
+    const char* aiEnhanced = "";
+    if(m_VideoEnhancement->isVideoEnhancementEnabled()){
+        aiEnhanced = "AI-Enhanced";
+    }
+
     if (stats.receivedFps > 0) {
         if (m_VideoDecoderCtx != nullptr) {
             ret = snprintf(&output[offset],
                            length - offset,
-                           "Video stream: %dx%d %.2f FPS (Codec: %s)\n",
+                           "Video stream: %dx%d %.2f FPS (Codec: %s) %s\n",
                            m_VideoDecoderCtx->width,
                            m_VideoDecoderCtx->height,
                            stats.totalFps,
-                           codecString);
+                           codecString,
+                           aiEnhanced);
             if (ret < 0 || ret >= length - offset) {
                 SDL_assert(false);
                 return;
@@ -1016,13 +1024,13 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
 #endif
 #if LIBAVUTIL_VERSION_INT >= AV_VERSION_INT(58, 36, 100)
         case AV_HWDEVICE_TYPE_D3D12VA: // Covered by D3D11VA
-#endif
-            // If we have a specific renderer for this hwaccel device type, never allow it to fall back
-            // to the GenericHwAccelRenderer.
-            //
-            // If we reach this path for a known device type that we support above, it means either:
-            // a) The build was missing core hwaccel libraries and we should break loudly in that case.
-            // b) The renderer rejected the device for some reason and we shouldn't second guess it.
+#endif \
+    // If we have a specific renderer for this hwaccel device type, never allow it to fall back \
+    // to the GenericHwAccelRenderer. \
+    // \
+    // If we reach this path for a known device type that we support above, it means either: \
+    // a) The build was missing core hwaccel libraries and we should break loudly in that case. \
+    // b) The renderer rejected the device for some reason and we shouldn't second guess it.
             return nullptr;
 
         default:
@@ -1133,39 +1141,39 @@ bool FFmpegVideoDecoder::tryInitializeRenderer(const AVCodec* decoder,
 }
 
 #define TRY_PREFERRED_PIXEL_FORMAT(RENDERER_TYPE) \
-    { \
+{ \
         RENDERER_TYPE renderer; \
         if (renderer.getPreferredPixelFormat(params->videoFormat) == decoder_pix_fmts[i]) { \
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, \
                         "Trying " #RENDERER_TYPE " for codec %s due to preferred pixel format: 0x%x", \
-                        decoder->name, decoder_pix_fmts[i]); \
+                                                                                                      decoder->name, decoder_pix_fmts[i]); \
             if (tryInitializeRenderer(decoder, decoder_pix_fmts[i], params, nullptr, nullptr, \
                                       []() -> IFFmpegRenderer* { return new RENDERER_TYPE(); })) { \
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, \
                             "Chose " #RENDERER_TYPE " for codec %s due to preferred pixel format: 0x%x", \
-                            decoder->name, decoder_pix_fmts[i]); \
+                                                                                                         decoder->name, decoder_pix_fmts[i]); \
                 return true; \
-            } \
         } \
-    }
+    } \
+}
 
 #define TRY_SUPPORTED_NON_PREFERRED_PIXEL_FORMAT(RENDERER_TYPE) \
-    { \
+{ \
         RENDERER_TYPE renderer; \
         if (decoder_pix_fmts[i] != renderer.getPreferredPixelFormat(params->videoFormat) && \
-            renderer.isPixelFormatSupported(params->videoFormat, decoder_pix_fmts[i])) { \
+                                                                                            renderer.isPixelFormatSupported(params->videoFormat, decoder_pix_fmts[i])) { \
             SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, \
                         "Trying " #RENDERER_TYPE " for codec %s due to compatible pixel format: 0x%x", \
-                        decoder->name, decoder_pix_fmts[i]); \
+                                                                                                       decoder->name, decoder_pix_fmts[i]); \
             if (tryInitializeRenderer(decoder, decoder_pix_fmts[i], params, nullptr, nullptr, \
                                       []() -> IFFmpegRenderer* { return new RENDERER_TYPE(); })) { \
                 SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, \
                             "Chose " #RENDERER_TYPE " for codec %s due to compatible pixel format: 0x%x", \
-                            decoder->name, decoder_pix_fmts[i]); \
+                                                                                                          decoder->name, decoder_pix_fmts[i]); \
                 return true; \
-            } \
         } \
-    }
+    } \
+}
 
 bool FFmpegVideoDecoder::tryInitializeRendererForUnknownDecoder(const AVCodec* decoder,
                                                                 PDECODER_PARAMETERS params,
@@ -1719,7 +1727,7 @@ void FFmpegVideoDecoder::decoderThreadProc()
                         }
 
                         if ((hdrMetadata.maxContentLightLevel != 0 || hdrMetadata.maxFrameAverageLightLevel != 0) &&
-                                av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL) == nullptr) {
+                            av_frame_get_side_data(frame, AV_FRAME_DATA_CONTENT_LIGHT_LEVEL) == nullptr) {
                             auto clm = av_content_light_metadata_create_side_data(frame);
 
                             clm->MaxCLL = hdrMetadata.maxContentLightLevel;
