@@ -850,24 +850,17 @@ Flickable {
                     id: videoEnhancementCheck
                     width: parent.width
                     hoverEnabled: true
-                    text: qsTr("Video AI-Enhancement")
+                    text: qsTr("Video Super Resolution")
                     font.pointSize:  12
                     enabled: SystemProperties.isVideoEnhancementCapable()
                     checked: {
-                        return SystemProperties.isVideoEnhancementCapable() && StreamingPreferences.videoEnhancement
+                        return SystemProperties.isVideoEnhancementCapable() && StreamingPreferences.videoEnhancing
                     }
                     property bool keepValue: checked;
                     
                     function changeCheck() {
-                        // For Intel, HDR support is not working properly with VideoProcessor, it crashes while Moonlight is set to HDR and Host to SDR.
-                        // For NVIDIA, VSR should support HDR since Januray 2025 but for some reasons it does not work in Moonlight (in comparison it works for Youtube HDR videos)
-                        // https://nvidia.custhelp.com/app/answers/detail/a_id/5448/~/rtx-video-faq
-                        // So we disbale VSR for NVIDIA too
-                        if(
-                            decoderListModel.get(decoderComboBox.currentIndex).val === StreamingPreferences.VDS_FORCE_SOFTWARE
-                            || enableYUV444.checked
-                            || ((SystemProperties.isVendorIntel() || SystemProperties.isVendorNVIDIA()) && enableHdr.checked)
-                            ){
+                        // We disable Software rendering
+                        if(decoderListModel.get(decoderComboBox.currentIndex).val === StreamingPreferences.VDS_FORCE_SOFTWARE){
                             enabled = false;
                             keepValue = checked;
                             checked = false;
@@ -878,29 +871,122 @@ Flickable {
                     }
                     
                     onCheckedChanged: {
-                        StreamingPreferences.videoEnhancement = checked
+                        StreamingPreferences.videoEnhancing = checked
                     }
                     ToolTip.delay: 1000
                     ToolTip.timeout: 5000
                     ToolTip.visible: hovered
                     ToolTip.text:
-                        qsTr("Enhance video quality by utilizing the GPU's AI-Enhancement capabilities.")
-                        + qsTr("\nThis feature effectively upscales from the stream resolution up to your display resolution, while also reducing compression artifacts and enhancing the clarity of streamed content.")
-                        + qsTr("\nNote:")
-                        + qsTr("\n  - If available, ensure that appropriate settings (i.e. RTX Video enhancement) are enabled in your GPU driver configuration.")
-                        + qsTr("\n  - We advise against enabling HDR and AI-Enhancement at the same time, as there are currently driver issues on some GPU vendors which can negatively impact the resulting image when using that combination.")
-                        + qsTr("\n  - Be advised that using this feature on laptops running on battery power may lead to significant battery drain.")
+                        qsTr("Leverages hardware acceleration to improve picture clarity by upscaling when stream resolution is below your display resolution.")
+                        + qsTr("\nFor Nvidia GPUs, ensure that the appropriate settings (e.g., RTX Video Enhancement) are enabled in the Control Panel.")
 
                     Component.onCompleted: {
                         if (!SystemProperties.isVideoEnhancementCapable()){
                             // VSR or SDR->HDR feature could not be initialized by any GPU available
-                            text = qsTr("Video AI-Enhancement (Not supported by the GPU)")
+                            text = qsTr("Video Super Resolution (Not supported by the GPU)")
                             enabled = false;
                             checked = false;
                         } else if(SystemProperties.isVideoEnhancementExperimental()){
                             // Indicate if the feature is available but not officially deployed by the Vendor
-                            text = qsTr("Video AI-Enhancement (Experimental)")
+                            text = qsTr("Video Super Resolution (Experimental)")
                         }
+                    }
+                }
+
+                // Note: Do not make the algorythm selector available to the final user
+                Label {
+                    visible: true // [debug] Set to true only for testing
+                    width: parent.width
+                    id: resSuperResolutionModeTitle
+                    text: qsTr("Video Super Resolution Mode")
+                    font.pointSize: 12
+                    wrapMode: Text.Wrap
+                }
+
+                // Note: Do not make the algorythm selector available to the final user
+                AutoResizingComboBox {
+
+                    visible: true // [debug] Set to true only for testing
+
+                    // ignore setting the index at first, and actually set it when the component is loaded
+                    Component.onCompleted: {
+                        var saved_super_resolution = StreamingPreferences.superResolutionMode
+                        currentIndex = 0
+                        for (var i = 0; i < superResolutionModeListModel.count; i++) {
+                            var el_super_resolution = superResolutionModeListModel.get(i).val;
+                            if (saved_super_resolution === el_super_resolution) {
+                                currentIndex = i
+                                break
+                            }
+                        }
+                        activated(currentIndex)
+                    }
+
+                    id: superResolutionModeComboBox
+                    textRole: "text"
+                    model: ListModel {
+                        id: superResolutionModeListModel
+
+                        ListElement {
+                            text: qsTr("Auto Selection")
+                            val: StreamingPreferences.SRM_00
+                        }
+                        ListElement {
+                            text: qsTr("Vendor Driver Upscaler")
+                            val: StreamingPreferences.SRM_01
+                        }
+                        ListElement {
+                            text: qsTr("Video Processor Upscaler")
+                            val: StreamingPreferences.SRM_02
+                        }
+                        ListElement {
+                            text: qsTr("FSR1 Upscaler")
+                            val: StreamingPreferences.SRM_03
+                        }
+                        ListElement {
+                            text: qsTr("NIS Upscaler")
+                            val: StreamingPreferences.SRM_04
+                        }
+                        ListElement {
+                            text: qsTr("NIS (Half-presion)")
+                            val: StreamingPreferences.SRM_05
+                        }
+                        ListElement {
+                            text: qsTr("NIS Sharpener")
+                            val: StreamingPreferences.SRM_06
+                        }
+                        ListElement {
+                            text: qsTr("NIS Sharpener (Half-presion)")
+                            val: StreamingPreferences.SRM_07
+                        }
+                        ListElement {
+                            text: qsTr("RCAS Sharpener")
+                            val: StreamingPreferences.SRM_08
+                        }
+                        ListElement {
+                            text: qsTr("CAS Sharpener")
+                            val: StreamingPreferences.SRM_09
+                        }
+                        ListElement {
+                            text: qsTr("BCUS Upscaler + RCAS Sharpener")
+                            val: StreamingPreferences.SRM_10
+                        }
+                        ListElement {
+                            text: qsTr("Test Texture Copy")
+                            val: StreamingPreferences.SRM_11
+                        }
+                        ListElement {
+                            text: qsTr("Test Compute Shader (invert color)")
+                            val: StreamingPreferences.SRM_12
+                        }
+                        ListElement {
+                            text: qsTr("Test Pixel Shader (invert color)")
+                            val: StreamingPreferences.SRM_13
+                        }
+                    }
+                    // ::onActivated must be used, as it only listens for when the index is changed by a human
+                    onActivated : {
+                        StreamingPreferences.superResolutionMode = superResolutionModeListModel.get(currentIndex).val
                     }
                 }
             }
@@ -1597,7 +1683,7 @@ Flickable {
                         var saved_vds = StreamingPreferences.videoDecoderSelection
                         currentIndex = 0
                         for (var i = 0; i < decoderListModel.count; i++) {
-                            var el_vds = decoderListModel.get(i).val;
+                            var el_vds = decoderListModel.get(i).val
                             if (saved_vds === el_vds) {
                                 currentIndex = i
                                 break
@@ -1734,8 +1820,6 @@ Flickable {
                                 slider.value = StreamingPreferences.bitrateKbps
                             }
                         }
-                        // Disable Video enhancement when YUV444 is enabled as it doesn't work with
-                        videoEnhancementCheck.changeCheck()
                     }
 
                     ToolTip.delay: 1000

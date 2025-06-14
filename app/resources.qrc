@@ -76,9 +76,6 @@
         <file>languages/qml_eo.qm</file>
         <file>languages/qml_ta.ts</file>
         <file>languages/qml_ta.qm</file>
-        <!-- Don't include pt_BR until it is more complete -->
-        <!--file>languages/qml_pt_BR.qm</file-->
-        <!--file>languages/qml_pt_BR.ts</file-->
     </qresource>
     <qresource prefix="/data">
         <file alias="gamecontrollerdb.txt">SDL_GameControllerDB/gamecontrollerdb.txt</file>
@@ -97,5 +94,21 @@
         <file alias="d3d11_ayuv_pixel.fxc">shaders/d3d11_ayuv_pixel.fxc</file>
         <file alias="d3d11_y410_pixel.fxc">shaders/d3d11_y410_pixel.fxc</file>
         <file alias="vt_renderer.metal">shaders/vt_renderer.metal</file>
+    </qresource>
+    <qresource prefix="/enhancer">
+        <file alias="bcds_catmull.hlsl">shaders/enhancers/bcds_catmull.hlsl</file>
+        <file alias="bcds_lanczos.hlsl">shaders/enhancers/bcds_lanczos.hlsl</file>
+        <file alias="bcds_magc.hlsl">shaders/enhancers/bcds_magc.hlsl</file>
+        <file alias="bcus.hlsl">shaders/enhancers/bcus.hlsl</file>
+        <file alias="cas.hlsl">shaders/enhancers/cas.hlsl</file>
+        <file alias="debug_cs.hlsl">shaders/enhancers/debug_cs.hlsl</file>
+        <file alias="debug_ps.hlsl">shaders/enhancers/debug_ps.hlsl</file>
+        <file alias="fsr1_easu.hlsl">shaders/enhancers/fsr1_easu.hlsl</file>
+        <file alias="fsr1_rcas.hlsl">shaders/enhancers/fsr1_rcas.hlsl</file>
+        <file alias="rcas.hlsl">shaders/enhancers/rcas.hlsl</file>
+        <file alias="fsr1_easu.cso">shaders/enhancers/fsr1_easu.cso</file>
+        <file alias="fsr1_rcas.cso">shaders/enhancers/fsr1_rcas.cso</file>
+        <file alias="NIS_Main.hlsl">shaders/enhancers/NIS_Main.hlsl</file>
+        <file alias="copy.hlsl">shaders/enhancers/copy.hlsl</file>
     </qresource>
 </RCC>

@@ -1,4 +1,5 @@
 #include "videoenhancement.h"
+#include <string>
 
 /**
  * \brief Constructor (Singleton)
@@ -108,6 +109,18 @@ bool VideoEnhancement::isVendorNVIDIA(int vendorId){
 }
 
 /**
+ * \brief Force the Video Super-Resolution capability
+ *
+ * If VideoProcessor Extesion are not available, we still allow Video Super-Resolution
+ * thanks to the Shader fallback.
+ *
+ * \return void
+ */
+void VideoEnhancement::setForceCapable(bool capable){
+    m_ForceCapable = capable;
+}
+
+/**
  * \brief Set the Video Super-Resolution capability
  *
  * Keep track if the adapter is capable of Video Super-Resolution
@@ -152,14 +165,14 @@ bool VideoEnhancement::isHDRcapable(){
 }
 
 /**
- * \brief Check the AI-Enhancement capability
+ * \brief Check the Video-Enhancement capability
  *
  * Check if the GPU used is capable of enhancing the video
  *
  * \return bool Returns true if the such capability is available
  */
 bool VideoEnhancement::isEnhancementCapable(){
-    return m_VSRcapable || m_HDRcapable;
+    return m_ForceCapable || m_VSRcapable || m_HDRcapable;
 }
 
 /**
@@ -207,8 +220,50 @@ bool VideoEnhancement::isUIvisible(){
  * \return bool Returns true if the Video Enhancement feature is experimental
  */
 bool VideoEnhancement::isExperimental(){
-    // Only Intel is experimental, NVIDIA and AMD are official
-    // [ToDo] If Intel officially release the feature, we can return false or just delete
-    // this method and the QML logic associated.
-    return isVendorIntel();
+    // No vendor is in experimental mode
+    return false;
+}
+
+/**
+ * \brief Set the upscaling Ratio
+ *
+ * Set the value of the ratio which must be TextureOutputHeight/TextureInputHeight.
+ *
+ * \return void
+ */
+void VideoEnhancement::setRatio(float ratio){
+    m_Ratio = ratio;
+}
+
+/**
+ * \brief Get the upscaling Ratio
+ *
+ * Return the value of the upscaling ratio Output/Input.
+ *
+ * \return float Returns the upscaling Ratio
+ */
+float VideoEnhancement::getRatio(){
+    return m_Ratio;
+}
+
+/**
+ * \brief Set the upscaling Algorythm
+ *
+ * Set the value of the algorythm used to do the upscaling.
+ *
+ * \return void
+ */
+void VideoEnhancement::setAlgo(std::string algo){
+    m_Algo = algo;
+}
+
+/**
+ * \brief Get the upscaling Algorythm
+ *
+ * Return the value of algorythm used to do the upscaling.
+ *
+ * \return float Returns the upscaling Algorythm
+ */
+std::string VideoEnhancement::getAlgo(){
+    return m_Algo;
 }

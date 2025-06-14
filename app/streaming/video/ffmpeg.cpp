@@ -822,22 +822,33 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
         break;
     }
 
-    // Display if AI-Enhancement is enabled
-    const char* aiEnhanced = "";
-    if(m_VideoEnhancement->isVideoEnhancementEnabled()){
-        aiEnhanced = "AI-Enhanced";
-    }
-
     if (stats.receivedFps > 0) {
         if (m_VideoDecoderCtx != nullptr) {
             ret = snprintf(&output[offset],
                            length - offset,
-                           "Video stream: %dx%d %.2f FPS (Codec: %s) %s\n",
+                           "Video stream: %dx%d %.2f FPS (Codec: %s)\n",
                            m_VideoDecoderCtx->width,
                            m_VideoDecoderCtx->height,
                            stats.totalFps,
-                           codecString,
-                           aiEnhanced);
+                           codecString);
+            if (ret < 0 || ret >= length - offset) {
+                SDL_assert(false);
+                return;
+            }
+
+            offset += ret;
+        }
+
+        if(m_VideoEnhancement->isVideoEnhancementEnabled()){
+            std::string videoEnhanced = "Video Enhancement: Inactive (No upscaling)\n";
+            if(m_VideoEnhancement->getRatio() != 1){
+                videoEnhanced = "Video Enhancement: Active (x%.2f) %s\n";
+            }
+            ret = snprintf(&output[offset],
+                           length - offset,
+                           videoEnhanced.c_str(),
+                           m_VideoEnhancement->getRatio(),
+                           m_VideoEnhancement->getAlgo().c_str());
             if (ret < 0 || ret >= length - offset) {
                 SDL_assert(false);
                 return;
@@ -913,7 +924,7 @@ void FFmpegVideoDecoder::stringifyVideoStats(VIDEO_STATS& stats, char* output, i
 void FFmpegVideoDecoder::logVideoStats(VIDEO_STATS& stats, const char* title)
 {
     if (stats.renderedFps > 0 || stats.renderedFrames != 0) {
-        char videoStatsStr[512];
+        char videoStatsStr[800];
         stringifyVideoStats(stats, videoStatsStr, sizeof(videoStatsStr));
 
         SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION,

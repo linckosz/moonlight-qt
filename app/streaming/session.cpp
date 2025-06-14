@@ -2261,7 +2261,7 @@ void Session::execInternal()
                                    m_ActiveVideoHeight, m_ActiveVideoFrameRate,
                                    enableVsync,
                                    enableVsync && m_Preferences->framePacing,
-                                   m_Preferences->videoEnhancement,
+                                   m_Preferences->videoEnhancing,
                                    false,
                                    s_ActiveSession->m_VideoDecoder)) {
                     SDL_AtomicUnlock(&m_DecoderLock);

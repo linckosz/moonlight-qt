@@ -26,6 +26,25 @@ public:
     };
     Q_ENUM(AudioConfig)
 
+    enum SuperResolutionMode
+    {
+        SRM_00,
+        SRM_01,
+        SRM_02,
+        SRM_03,
+        SRM_04,
+        SRM_05,
+        SRM_06,
+        SRM_07,
+        SRM_08,
+        SRM_09,
+        SRM_10,
+        SRM_11,
+        SRM_12,
+        SRM_13
+    };
+    Q_ENUM(SuperResolutionMode)
+
     enum VideoCodecConfig
     {
         VCC_AUTO,
@@ -123,7 +142,7 @@ public:
     Q_PROPERTY(bool absoluteMouseMode MEMBER absoluteMouseMode NOTIFY absoluteMouseModeChanged)
     Q_PROPERTY(bool absoluteTouchMode MEMBER absoluteTouchMode NOTIFY absoluteTouchModeChanged)
     Q_PROPERTY(bool framePacing MEMBER framePacing NOTIFY framePacingChanged)
-    Q_PROPERTY(bool videoEnhancement MEMBER videoEnhancement NOTIFY videoEnhancementChanged)
+    Q_PROPERTY(bool videoEnhancing MEMBER videoEnhancing NOTIFY videoEnhancingChanged)
     Q_PROPERTY(bool connectionWarnings MEMBER connectionWarnings NOTIFY connectionWarningsChanged)
     Q_PROPERTY(bool configurationWarnings MEMBER configurationWarnings NOTIFY configurationWarningsChanged)
     Q_PROPERTY(bool richPresence MEMBER richPresence NOTIFY richPresenceChanged)
@@ -131,6 +150,7 @@ public:
     Q_PROPERTY(bool detectNetworkBlocking MEMBER detectNetworkBlocking NOTIFY detectNetworkBlockingChanged)
     Q_PROPERTY(bool showPerformanceOverlay MEMBER showPerformanceOverlay NOTIFY showPerformanceOverlayChanged)
     Q_PROPERTY(AudioConfig audioConfig MEMBER audioConfig NOTIFY audioConfigChanged)
+    Q_PROPERTY(SuperResolutionMode superResolutionMode MEMBER superResolutionMode NOTIFY superResolutionModeChanged)
     Q_PROPERTY(VideoCodecConfig videoCodecConfig MEMBER videoCodecConfig NOTIFY videoCodecConfigChanged)
     Q_PROPERTY(bool enableHdr MEMBER enableHdr NOTIFY enableHdrChanged)
     Q_PROPERTY(bool enableYUV444 MEMBER enableYUV444 NOTIFY enableYUV444Changed)
@@ -165,7 +185,7 @@ public:
     bool absoluteMouseMode;
     bool absoluteTouchMode;
     bool framePacing;
-    bool videoEnhancement;
+    bool videoEnhancing;
     bool connectionWarnings;
     bool configurationWarnings;
     bool richPresence;
@@ -180,6 +200,7 @@ public:
     bool keepAwake;
     int packetSize;
     AudioConfig audioConfig;
+    SuperResolutionMode superResolutionMode;
     VideoCodecConfig videoCodecConfig;
     bool enableHdr;
     bool enableYUV444;
@@ -205,6 +226,7 @@ signals:
     void absoluteMouseModeChanged();
     void absoluteTouchModeChanged();
     void audioConfigChanged();
+    void superResolutionModeChanged();
     void videoCodecConfigChanged();
     void enableHdrChanged();
     void enableYUV444Changed();
@@ -212,7 +234,7 @@ signals:
     void uiDisplayModeChanged();
     void windowModeChanged();
     void framePacingChanged();
-    void videoEnhancementChanged();
+    void videoEnhancingChanged();
     void connectionWarningsChanged();
     void configurationWarningsChanged();
     void richPresenceChanged();

@@ -1,4 +1,4 @@
-QT += core quick network quickcontrols2 svg
+QT += core quick network quickcontrols2 svg concurrent
 CONFIG += c++11
 
 unix:!macx {
@@ -153,7 +153,7 @@ unix:if(!macx|disable-prebuilts) {
     }
 }
 win32 {
-    LIBS += -llibssl -llibcrypto -lSDL2 -lSDL2_ttf -lavcodec -lavutil -lswscale -lopus -ldxgi -ld3d11 -llibplacebo
+    LIBS += -llibssl -llibcrypto -lSDL2 -lSDL2_ttf -lavcodec -lavutil -lswscale -lopus -ldxgi -ld3d11 -ld3d12 -llibplacebo -ld3dcompiler
     CONFIG += ffmpeg libplacebo
 }
 win32:!winrt {
@@ -398,15 +398,17 @@ win32:!winrt {
     SOURCES += \
         streaming/video/ffmpeg-renderers/dxva2.cpp \
         streaming/video/ffmpeg-renderers/d3d11va.cpp \
+        streaming/video/ffmpeg-renderers/d3d11va_shaders.cpp \
         streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.cpp
 
     HEADERS += \
         streaming/video/ffmpeg-renderers/dxva2.h \
         streaming/video/ffmpeg-renderers/d3d11va.h \
+        streaming/video/ffmpeg-renderers/d3d11va_shaders.h \
         streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.h
 }
 win32:!winrt {
-    message(AMF enabled for AMD Drivers)
+    message(AMD Upscaling technologies)
 
     SOURCES += \
         ../third-party/AMF/amf/public/common/AMFFactory.cpp \
@@ -415,7 +417,14 @@ win32:!winrt {
         ../third-party/AMF/amf/public/common/TraceAdapter.cpp \
         ../third-party/AMF/amf/public/common/Windows/ThreadWindows.cpp
 
-    INCLUDEPATH += $$PWD/../third-party/AMF/amf
+    INCLUDEPATH +=  \
+        $$PWD/../third-party/AMF/amf \
+        $$PWD/../third-party/FidelityFX-FSR/ffx-fsr
+}
+win32:!winrt {
+    message(NVIDIA Image Scaling)
+
+    INCLUDEPATH += $$PWD/../third-party/NVIDIAImageScaling/NIS
 }
 macx {
     message(VideoToolbox renderer selected)

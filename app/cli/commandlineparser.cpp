@@ -305,6 +305,22 @@ StreamCommandLineParser::StreamCommandLineParser()
         {"5.1-surround", StreamingPreferences::AC_51_SURROUND},
         {"7.1-surround", StreamingPreferences::AC_71_SURROUND},
     };
+    m_SuperResolutionModeMap = {
+        {"auto",                       StreamingPreferences::SRM_00},
+        {"driver",                     StreamingPreferences::SRM_01},
+        {"video-processor",            StreamingPreferences::SRM_02},
+        {"fsr1",                       StreamingPreferences::SRM_03},
+        {"nis",                        StreamingPreferences::SRM_04},
+        {"nis-sharpen",                StreamingPreferences::SRM_05},
+        {"nis-half-precision",         StreamingPreferences::SRM_06},
+        {"nis-sharpen-half-precision", StreamingPreferences::SRM_07},
+        {"rcas",                       StreamingPreferences::SRM_08},
+        {"cas",                        StreamingPreferences::SRM_09},
+        {"bcus-rcas",                  StreamingPreferences::SRM_10},
+        {"copy",                       StreamingPreferences::SRM_11},
+        {"test-invert-color-compute",  StreamingPreferences::SRM_12},
+        {"test-invert-color-pixel",    StreamingPreferences::SRM_13},
+    };
     m_VideoCodecMap = {
         {"auto",  StreamingPreferences::VCC_AUTO},
         {"H.264", StreamingPreferences::VCC_FORCE_H264},
@@ -352,6 +368,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     parser.addValueOption("packet-size", "video packet size");
     parser.addChoiceOption("display-mode", "display mode", m_WindowModeMap.keys());
     parser.addChoiceOption("audio-config", "audio config", m_AudioConfigMap.keys());
+    parser.addChoiceOption("super-resolution-mode", "super resolution mode", m_SuperResolutionModeMap.keys());
     parser.addToggleOption("multi-controller", "multiple controller support");
     parser.addToggleOption("quit-after", "quit app after session");
     parser.addToggleOption("absolute-mouse", "remote desktop optimized mouse control");
@@ -444,6 +461,11 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
         preferences->audioConfig = mapValue(m_AudioConfigMap, parser.getChoiceOptionValue("audio-config"));
     }
 
+    // Resolve --super-resolution-config option
+        if (parser.isSet("super-resolution-mode")) {
+        preferences->superResolutionMode = mapValue(m_SuperResolutionModeMap, parser.getChoiceOptionValue("super-resolution-mode"));
+    }
+
     // Resolve --multi-controller and --no-multi-controller options
     preferences->multiController = parser.getToggleOptionValue("multi-controller", preferences->multiController);
 
@@ -469,7 +491,7 @@ void StreamCommandLineParser::parse(const QStringList &args, StreamingPreference
     preferences->framePacing = parser.getToggleOptionValue("frame-pacing", preferences->framePacing);
 
     // Resolve --video-enhancement and --no-video-enhancement options
-    preferences->videoEnhancement = parser.getToggleOptionValue("video-enhancement", preferences->videoEnhancement);
+    preferences->videoEnhancing = parser.getToggleOptionValue("video-enhancement", preferences->videoEnhancing);
 
     // Resolve --mute-on-focus-loss and --no-mute-on-focus-loss options
     preferences->muteOnFocusLoss = parser.getToggleOptionValue("mute-on-focus-loss", preferences->muteOnFocusLoss);
