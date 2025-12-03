@@ -471,6 +471,8 @@ win32:!winrt {
     SOURCES += ../third-party/AMF/amf/public/common/Windows/ThreadWindows.cpp
 }
 unix:!macx {
+    LIBS += -ldl
+    
     SOURCES += ../third-party/AMF/amf/public/common/Linux/ThreadLinux.cpp
 }
 win32:!winrt | unix:!macx {
