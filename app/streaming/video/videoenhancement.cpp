@@ -304,7 +304,7 @@ void VideoEnhancement::resetNumFrame(){
  *
  * \return int Increments the number of frames sent
  */
-UINT VideoEnhancement::incrementNumFrame(){
+long VideoEnhancement::incrementNumFrame(){
     return m_NumFrame++;
 }
 
@@ -313,7 +313,7 @@ UINT VideoEnhancement::incrementNumFrame(){
  *
  * \return int Returns the number of frames sent
  */
-UINT VideoEnhancement::getNumFrame(){
+long VideoEnhancement::getNumFrame(){
     return m_NumFrame;
 }
 

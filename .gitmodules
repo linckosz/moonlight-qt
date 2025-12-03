@@ -26,6 +26,3 @@
 [submodule "third-party/DirectX-Headers"]
 	path = third-party/DirectX-Headers
 	url = https://github.com/microsoft/DirectX-Headers.git
-[submodule "third-party/libvpl"]
-	path = third-party/libvpl
-	url = https://github.com/intel/libvpl.git

@@ -427,21 +427,26 @@ win32:!winrt {
     
     LIBS += -ladvapi32
     
-    NGX_DLL_PATH_VSR = "$$PWD/../third-party/RTX_Video_SDK/bin/Windows/x64/rel/nvngx_vsr.dll"
-    NGX_DLL_PATH_HDR = "$$PWD/../third-party/RTX_Video_SDK/bin/Windows/x64/rel/nvngx_truehdr.dll"
+    OS_ARCHI = x64
+    contains(QT_ARCH, arm64) {
+        OS_ARCHI = arm64
+    }
+    
+    NGX_DLL_PATH_VSR = "$$PWD/../third-party/RTX_Video_SDK/bin/Windows/$${OS_ARCHI}/rel/nvngx_vsr.dll"
+    NGX_DLL_PATH_HDR = "$$PWD/../third-party/RTX_Video_SDK/bin/Windows/$${OS_ARCHI}/rel/nvngx_truehdr.dll"
     
     CONFIG(debug, debug|release) {
         # Debug
         copy_vsr.commands = $$quote(copy /Y $$shell_path($$NGX_DLL_PATH_VSR) $$shell_path("$$OUT_PWD/debug"))
         copy_hdr.commands = $$quote(copy /Y $$shell_path($$NGX_DLL_PATH_HDR) $$shell_path("$$OUT_PWD/debug"))
-        LIBS += -L$$PWD/../third-party/RTX_Video_SDK/lib/Windows/x64 -lnvsdk_ngx_d_dbg
+        LIBS += -L$$PWD/../third-party/RTX_Video_SDK/lib/Windows/$${OS_ARCHI} -lnvsdk_ngx_d_dbg
     }
     
     CONFIG(release, debug|release) {
         # Release
         copy_vsr.commands = $$quote(copy /Y $$shell_path($$NGX_DLL_PATH_VSR) $$shell_path("$$OUT_PWD/release"))
         copy_hdr.commands = $$quote(copy /Y $$shell_path($$NGX_DLL_PATH_HDR) $$shell_path("$$OUT_PWD/release"))
-        LIBS += -L$$PWD/../third-party/RTX_Video_SDK/lib/Windows/x64 -lnvsdk_ngx_d
+        LIBS += -L$$PWD/../third-party/RTX_Video_SDK/lib/Windows/$${OS_ARCHI} -lnvsdk_ngx_d
     }
 
     QMAKE_POST_LINK += $$copy_vsr.commands & $$copy_hdr.commands
@@ -449,17 +454,6 @@ win32:!winrt {
     INCLUDEPATH += $$PWD/../third-party/RTX_Video_SDK/include
 }
 
-win32:!winrt {
-    message(Intel VPL Upscaling technologies)
-    
-    LIBS += -L$$PWD/../third-party/IntelVPL -lvpl
-    
-    INCLUDEPATH += \
-        $$PWD/../third-party/libvpl/api \
-        $$PWD/../third-party/IntelVPL \
-        $$PWD/../third-party/IntelVPL/Debug
-    
-}
 win32:!winrt | unix:!macx {
     message(AMD Upscaling technologies)
 

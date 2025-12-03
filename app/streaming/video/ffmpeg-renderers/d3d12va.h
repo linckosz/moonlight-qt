@@ -22,10 +22,6 @@
 #include "public/include/core/Result.h"
 using namespace amf;
 
-// Intel VPL
-#define ONEVPL_EXPERIMENTAL 1
-#include "vpl/mfx.h"
-
 // NVIDIA VSR
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_defs.h>
@@ -122,7 +118,6 @@ private:
         UPSCALE_SHADER,
         UPSCALE_VIDEOPROCESSOR,
         UPSCALE_AMF,
-        UPSCALE_VPL,
         UPSCALE_VSR,
         SHARPEN_SHADER,
         NONE
@@ -315,10 +310,6 @@ private:
     AMFSurfacePtr m_AmfSurfaceRGB;
     AMFSurfacePtr m_AmfSurfaceUpscaledYUV;
     AMFSurfacePtr m_AmfSurfaceUpscaledRGB;
-    
-    // Intel VPL
-    mfxVideoParam m_VppParams;
-    mfxSession m_VppSession;
     
     // NVIDIA VSR
     bool m_bNGXInitialized = false;

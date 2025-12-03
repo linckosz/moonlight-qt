@@ -2,7 +2,6 @@
 #define VIDEOENHANCEMENT_H
 
 #include <string>
-#include <wrl/client.h>
 
 #pragma once
 
@@ -26,7 +25,7 @@ private:
     bool m_HDRcapable = false;
     float m_Ratio;
     std::string m_Algo;
-    UINT m_NumFrame = 0;
+    long m_NumFrame = 0;
     AVHWDeviceType m_DeviceType;
 
     // Vendors' name (PCI Special Interest Group)
@@ -75,8 +74,8 @@ public:
     void setIntegratedGPU(bool isIntegratedGPU);
     bool isIntegratedGPU();
     void resetNumFrame();
-    UINT incrementNumFrame();
-    UINT getNumFrame();
+    long incrementNumFrame();
+    long getNumFrame();
     void setDeviceType(AVHWDeviceType deviceType);
     AVHWDeviceType getDeviceType();
 
