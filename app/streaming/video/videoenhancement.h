@@ -5,11 +5,6 @@
 
 #pragma once
 
-extern "C" {
-#include <libavutil/hwcontext.h>
-}
-
-
 class VideoEnhancement
 {
 
@@ -26,7 +21,7 @@ private:
     float m_Ratio;
     std::string m_Algo;
     long m_NumFrame = 0;
-    AVHWDeviceType m_DeviceType;
+    int m_DeviceType;
 
     // Vendors' name (PCI Special Interest Group)
     const int VENDOR_ID_AMD = 0x1002;
@@ -76,8 +71,8 @@ public:
     void resetNumFrame();
     long incrementNumFrame();
     long getNumFrame();
-    void setDeviceType(AVHWDeviceType deviceType);
-    AVHWDeviceType getDeviceType();
+    void setDeviceType(int deviceType);
+    int getDeviceType();
 
 };
 

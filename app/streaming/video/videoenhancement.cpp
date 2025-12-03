@@ -322,17 +322,18 @@ long VideoEnhancement::getNumFrame(){
  *
  * Keep the information about the Device Type used
  *
+ * \param int equivant to AVHWDeviceType
  * \return void
  */
-void VideoEnhancement::setDeviceType(AVHWDeviceType deviceType){
+void VideoEnhancement::setDeviceType(int deviceType){
     m_DeviceType = deviceType;
 }
 
 /**
  * \brief Get AV Hardware Device Type
  *
- * \return AVHWDeviceType Returns the Device type used
+ * \return int Returns the Device type used, equivalent to AVHWDeviceType
  */
-AVHWDeviceType VideoEnhancement::getDeviceType(){
+int VideoEnhancement::getDeviceType(){
     return m_DeviceType;
 }
