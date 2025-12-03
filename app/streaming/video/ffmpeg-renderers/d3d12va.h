@@ -31,7 +31,6 @@ using namespace amf;
 #include <nvsdk_ngx_helpers_vsr.h>
 
 extern "C" {
-#include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_d3d11va.h>
 #include <libavutil/hwcontext_d3d12va.h>
 }
