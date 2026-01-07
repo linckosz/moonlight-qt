@@ -206,6 +206,12 @@ echo Copying GC mapping list
 copy %SOURCE_ROOT%\app\SDL_GameControllerDB\gamecontrollerdb.txt %DEPLOY_FOLDER%
 if !ERRORLEVEL! NEQ 0 goto Error
 
+cmd /c "cd /d third-party\libvpl && ^
+        script\bootstrap.bat && ^
+        cmake -B _build -DCMAKE_INSTALL_PREFIX=_vplinstall && ^
+        cmake --build _build --config Release && ^
+        cmake --install _build --config Release"
+
 if not x%QT_PATH:\5.=%==x%QT_PATH% (
     echo Copying qt.conf for Qt 5
     copy %SOURCE_ROOT%\app\qt_qt5.conf %DEPLOY_FOLDER%\qt.conf
