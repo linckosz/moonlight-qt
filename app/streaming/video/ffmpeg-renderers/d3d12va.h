@@ -29,6 +29,10 @@ using namespace amf;
 #include <nvsdk_ngx_defs_vsr.h>
 #include <nvsdk_ngx_helpers_vsr.h>
 
+// Intel VPL
+#define ONEVPL_EXPERIMENTAL 1
+#include "vpl/mfx.h"
+
 extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_d3d11va.h>
@@ -118,6 +122,7 @@ private:
         UPSCALE_VIDEOPROCESSOR,
         UPSCALE_AMF,
         UPSCALE_VSR,
+        UPSCALE_VPL,
         SHARPEN_SHADER,
         NONE
     };
@@ -318,6 +323,12 @@ private:
     NVSDK_NGX_Handle* m_TrueHDRFeature = nullptr;
     RECT m_NGXSrcRect = {};
     RECT m_NGXDstRect = {};
+    
+    // Intel VPL
+    mfxVideoParam m_VppParams;
+    mfxSession m_VppSession;
+    
+    mfxLoader m_Loader;
     
     // Used for debug purpose only
     ComPtr<ID3D12CommandAllocator> m_PictureCommandAllocator;

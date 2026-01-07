@@ -58,7 +58,8 @@ D3D12VARenderer::D3D12VARenderer(int decoderSelectionPass):
     m_AmfSurfaceUpscaledYUV(nullptr),
     m_AmfSurfaceUpscaledRGB(nullptr),
     m_VSRFeature(nullptr),
-    m_TrueHDRFeature(nullptr)
+    m_TrueHDRFeature(nullptr),
+    m_VppSession(nullptr)
 {
     // Give a High CPU priority to this thread
     DwmEnableMMCSS(TRUE);
@@ -160,6 +161,14 @@ D3D12VARenderer::~D3D12VARenderer()
     m_TrueHDRFeature = nullptr;
     NVSDK_NGX_D3D12_DestroyParameters(m_VSRngxParameters);
     NVSDK_NGX_D3D12_DestroyParameters(m_TrueHDRngxParameters);
+    
+    // Intel VPL
+    if(m_VppSession){
+        MFXUnload(m_Loader);
+        MFXVideoVPP_Close(m_VppSession);
+        MFXClose(m_VppSession);
+        m_VppSession = nullptr;
+    }
 
     m_D3D11DeviceContext.Reset();
     m_D3D11Device.Reset();
@@ -461,14 +470,24 @@ void D3D12VARenderer::enhanceAutoSelection()
             infoSharpener = "FRS1 RCAS";
             infoAlgo = "Shader FSR1";
         } else {
-            m_VendorVSRenabled = false;
+            // m_VendorVSRenabled = false;
+            // m_VendorHDRenabled = false;
+            // m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
+            // m_RenderStep1 = RenderStep::CONVERT_SHADER;
+            // m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+            // infoUpscaler = "FSR1 EASU";
+            // infoSharpener = "FRS1 RCAS";
+            // infoAlgo = "Shader FSR1";
+            
+            // Note: UPSCALE_VPL is not yet available as I could not figure out how to configure it properly
+            m_VendorVSRenabled = true;
             m_VendorHDRenabled = false;
-            m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
-            m_RenderStep1 = RenderStep::CONVERT_SHADER;
-            m_RenderStep2 = RenderStep::UPSCALE_SHADER;
-            infoUpscaler = "FSR1 EASU";
-            infoSharpener = "FRS1 RCAS";
-            infoAlgo = "Shader FSR1";
+            m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
+            m_RenderStep1 = RenderStep::UPSCALE_VPL;
+            m_RenderStep2 = RenderStep::CONVERT_SHADER;
+            infoUpscaler = "Intel VPL";
+            infoSharpener = "Intel VPL";
+            infoAlgo = "Intel VPL";
         }
     }
 
@@ -521,6 +540,7 @@ void D3D12VARenderer::enhanceAutoSelection()
             m_VendorVSRenabled = true;
             m_VendorHDRenabled = false;
             m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
+            m_RenderStep1 = RenderStep::UPSCALE_VPL;
             m_RenderStep2 = RenderStep::CONVERT_SHADER;
         } else if(m_VideoEnhancement->isVendorNVIDIA()){
             m_VendorVSRenabled = true;
@@ -633,6 +653,7 @@ void D3D12VARenderer::enhanceAutoSelection()
     case RenderStep::CONVERT_AMF:
     case RenderStep::UPSCALE_AMF:
     case RenderStep::UPSCALE_VSR:
+    case RenderStep::UPSCALE_VPL:
         m_VendorVSRenabled = true;
         break;
     default:
@@ -643,6 +664,7 @@ void D3D12VARenderer::enhanceAutoSelection()
     case RenderStep::CONVERT_AMF:
     case RenderStep::UPSCALE_AMF:
     case RenderStep::UPSCALE_VSR:
+    case RenderStep::UPSCALE_VPL:
         m_VendorVSRenabled = true;
         break;
     default:
@@ -1014,6 +1036,9 @@ void D3D12VARenderer::setAMDHdr()
  * \brief Enable Video Super-Resolution for Intel GPU
  *
  * [TODO]
+ * Intel provides ML upscaling method, but the current implementation does not work and need to be corrected
+ * There is a texture import/export sample here, but it might need to be adjust for our use case.
+ * https://intel.github.io/libvpl/latest/programming_guide/VPL_prg_surface_sharing.html
  * The AI Super Resultion is available as an experimental mode, it needs to enable ONEVPL_EXPERIMENTAL.
  * https://intel.github.io/libvpl/latest/API_ref/VPL_structs_vpp.html#mfxextvppaisuperresolution
  *
@@ -1023,8 +1048,159 @@ void D3D12VARenderer::setAMDHdr()
  */
 bool D3D12VARenderer::enableIntelVideoSuperResolution(bool activate, bool logInfo)
 {
-    if (logInfo) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Intel Video Super Resolution disabled");
+    if (!m_VendorVSRenabled){
+        activate = false;
+        if (logInfo) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Intel Video Super Resolution disabled");
+        m_IntelInitialized = false;
+        return false;
+    }
     
+    // VPL only works with DirectX11
+    if (m_VideoEnhancement->getDeviceType() != AV_HWDEVICE_TYPE_D3D11VA){
+        if (logInfo) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Intel Video Super Resolution disabled");  
+        m_IntelInitialized = false;
+        return false;
+    }
+    
+    mfxStatus sts;
+    mfxConfig cfg;
+    uint fourCC = MFX_FOURCC_NV12;
+    
+    // Safe helper : zero frameInfo first
+    auto zeroFrame = [](mfxFrameInfo &fi){ memset(&fi, 0, sizeof(fi)); };
+    
+    // NOTE: MFX_EXTBUFF_VPP_AI_SUPER_RESOLUTION looks not available on a A380, it fails MFXCreateSession
+    // AI Super Resolution
+    // mfxExtVPPAISuperResolution aiSuperResolution = {};
+    // aiSuperResolution.Header.BufferId = MFX_EXTBUFF_VPP_AI_SUPER_RESOLUTION;
+    // aiSuperResolution.Header.BufferSz = sizeof(mfxExtVPPAISuperResolution);
+    // aiSuperResolution.SRMode = MFX_AI_SUPER_RESOLUTION_MODE_DEFAULT;
+    // aiSuperResolution.SRAlgorithm = MFX_AI_SUPER_RESOLUTION_ALGORITHM_2;
+    // mfxExtBuffer* ExtParam[1] = { (mfxExtBuffer*)&aiSuperResolution };
+    
+    // Au lieu de AI Super Resolution, utilisez le scaling HQ standard
+    mfxExtVPPScaling scaling = {};
+    scaling.Header.BufferId = MFX_EXTBUFF_VPP_SCALING;
+    scaling.Header.BufferSz = sizeof(mfxExtVPPScaling);
+    scaling.ScalingMode = MFX_SCALING_MODE_QUALITY; // or MFX_SCALING_MODE_LOWPOWER
+    mfxExtBuffer* ExtParam[1] = { (mfxExtBuffer*)&scaling };
+    
+    m_Loader = MFXLoad();
+    if (m_Loader == NULL) goto ErrorIntel;
+    
+    cfg = MFXCreateConfig(m_Loader);
+    mfxVariant var;
+    var.Type = MFX_VARIANT_TYPE_U32;
+    
+    // var.Data.U32 = MFX_EXTBUFF_VPP_AI_SUPER_RESOLUTION;
+    var.Data.U32 = MFX_EXTBUFF_VPP_SCALING;
+    sts = MFXSetConfigFilterProperty(cfg, (mfxU8*)"mfxImplDescription.mfxVPPDescription.filter.FilterFourCC", var);
+    if (sts != MFX_ERR_NONE) goto ErrorIntel;
+    
+    // Hardware accelerator
+    var.Data.U32 = MFX_IMPL_HARDWARE;
+    sts = MFXSetConfigFilterProperty(cfg, (mfxU8*)"mfxImplDescription.Impl", var);
+    if (sts != MFX_ERR_NONE) goto ErrorIntel;
+    
+    // Session
+    sts = MFXCreateSession(m_Loader, 0, &m_VppSession);
+    if (sts != MFX_ERR_NONE) goto ErrorIntel;
+    
+    mfxIMPL impl;
+    MFXQueryIMPL(m_VppSession, &impl);
+    
+    qInfo() << "VPL impl:" << impl;
+    
+    if(!m_IsDecoderHDR && !m_yuv444){
+        fourCC = MFX_FOURCC_NV12;
+    } else if(m_IsDecoderHDR && !m_yuv444){
+        fourCC = MFX_FOURCC_P010;
+    } else if(!m_IsDecoderHDR && m_yuv444){
+        fourCC = MFX_FOURCC_AYUV;
+    } else if(m_IsDecoderHDR && m_yuv444){
+        fourCC = MFX_FOURCC_Y410;
+    } 
+    
+    // VPP Parameters
+    m_VppParams = {};
+    zeroFrame(m_VppParams.vpp.In);
+    zeroFrame(m_VppParams.vpp.Out);
+    
+    m_VppParams.IOPattern = MFX_IOPATTERN_IN_VIDEO_MEMORY | MFX_IOPATTERN_OUT_VIDEO_MEMORY;
+    
+    // Input texture (m_D3D11FrameTexture)
+    m_VppParams.vpp.In.Width = ALIGN16(m_DecoderParams.textureWidth);
+    m_VppParams.vpp.In.Height = ALIGN16(m_DecoderParams.textureHeight);
+    m_VppParams.vpp.In.FourCC = fourCC;
+    m_VppParams.vpp.In.ChromaFormat = m_yuv444 ? MFX_CHROMAFORMAT_YUV444 : MFX_CHROMAFORMAT_YUV420;
+    m_VppParams.vpp.In.FrameRateExtN = m_DecoderParams.frameRate;
+    m_VppParams.vpp.In.FrameRateExtD = 1;
+    m_VppParams.vpp.In.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+    m_VppParams.vpp.In.CropW = m_DecoderParams.textureWidth;
+    m_VppParams.vpp.In.CropH = m_DecoderParams.textureHeight;
+    m_VppParams.vpp.In.CropX = 0;
+    m_VppParams.vpp.In.CropY = 0;
+    m_VppParams.vpp.In.BitDepthLuma = m_IsDecoderHDR ? 10 : 8;
+    m_VppParams.vpp.In.BitDepthChroma = m_IsDecoderHDR ? 10 : 8;
+    m_VppParams.vpp.In.Shift = m_IsDecoderHDR ? 1 : 0;
+    m_VppParams.vpp.In.AspectRatioW = 1;
+    m_VppParams.vpp.In.AspectRatioH = 1;
+    
+    // Output texture (m_D3D11YUVTextureUpscaled)
+    m_VppParams.vpp.Out.Width = ALIGN16(m_OutputTextureInfo.width);
+    m_VppParams.vpp.Out.Height = ALIGN16(m_OutputTextureInfo.height);
+    m_VppParams.vpp.Out.FourCC = m_VppParams.vpp.In.FourCC;
+    m_VppParams.vpp.Out.ChromaFormat = m_VppParams.vpp.In.ChromaFormat;
+    m_VppParams.vpp.Out.FrameRateExtN = m_VppParams.vpp.In.FrameRateExtN;
+    m_VppParams.vpp.Out.FrameRateExtD = 1;
+    m_VppParams.vpp.Out.PicStruct = MFX_PICSTRUCT_PROGRESSIVE;
+    m_VppParams.vpp.Out.CropW = m_OutputTextureInfo.width;
+    m_VppParams.vpp.Out.CropH = m_OutputTextureInfo.height;
+    m_VppParams.vpp.Out.CropX = 0;
+    m_VppParams.vpp.Out.CropY = 0;
+    m_VppParams.vpp.Out.BitDepthLuma = m_VppParams.vpp.In.BitDepthLuma;
+    m_VppParams.vpp.Out.BitDepthChroma = m_VppParams.vpp.In.BitDepthChroma;
+    m_VppParams.vpp.Out.Shift = m_VppParams.vpp.In.Shift;
+    m_VppParams.vpp.Out.AspectRatioW = 1;
+    m_VppParams.vpp.Out.AspectRatioH = 1;
+    
+    
+    // AI Super Resolution
+    if(m_DecoderParams.textureWidth != m_OutputTextureInfo.width){
+        m_VppParams.NumExtParam = 1;
+        m_VppParams.ExtParam = ExtParam;
+    } else {
+        m_VppParams.NumExtParam = 0;
+        m_VppParams.ExtParam = nullptr;
+    }
+    
+    sts = MFXVideoVPP_Query(m_VppSession, &m_VppParams, &m_VppParams);
+    if (sts != MFX_ERR_NONE) {
+        qInfo() << "MFXVideoVPP_Query failed:" << sts;
+        goto ErrorIntel;
+    }
+    
+    // VPP Initialization
+    sts = MFXVideoVPP_Init(m_VppSession, &m_VppParams);
+    if(MFX_ERR_NONE != sts){
+        qInfo() << "VPP Initialization failed";
+        goto ErrorIntel;
+    }
+    
+    // MFXUnload(m_Loader);
+    
+    if (activate) {
+        if (logInfo) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Intel Video Super Resolution enabled");
+    } else {
+        if (logInfo) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Intel Video Super Resolution disabled");
+    }
+    
+    m_IntelInitialized = activate;
+    return true;
+    
+
+ErrorIntel:
+    if(logInfo) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Intel Video Super Resolution failed.");
     m_IntelInitialized = false;
     return false;
 }
@@ -1625,6 +1801,19 @@ bool D3D12VARenderer::checkDecoderType()
         return false;
     }
     
+    // IntelVPP works with DX11 only
+    if(m_VideoEnhancement->isVendorIntel()){
+        // Use DX11 decoder for SDR as VPL can be used,
+        // but DX12 for HDR as VPL doesn't work with P010 texture.
+        // NOTE: due to the fact that IntelVPL is not yet working, we use DX12 for the moment
+        if(!m_IsDecoderHDR){
+            if(m_VideoEnhancement->getDeviceType() == AV_HWDEVICE_TYPE_D3D11VA){
+                return true;
+            }
+            return false;
+        }
+    }
+    
     // By default, only accept D3D12va
     if(m_VideoEnhancement->getDeviceType() == AV_HWDEVICE_TYPE_D3D12VA){
         return true;
@@ -2107,6 +2296,21 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             }
             D3D11Device.As(&m_D3D11Device);
             D3D11DeviceContext.As(&m_D3D11DeviceContext);
+            
+            // IntelVPL needs multithreading enabled
+            if(m_IntelInitialized){
+                ComPtr<ID3D11Multithread> pMultithread;
+                m_hr = m_D3D11Device.As(&pMultithread);
+                if (SUCCEEDED(m_hr)) {
+                    pMultithread->SetMultithreadProtected(true);
+                    qInfo() << "VPL: D3D11: Multithread protection enabled.";
+                } else {
+                    qInfo() << "VPL: D3D11: Failed to enable multithread protection.";
+                }
+                
+                mfxHDL deviceHandle = (mfxHDL)m_D3D11Device.Get();
+                MFXVideoCORE_SetHandle(m_VppSession, MFX_HANDLE_D3D11_DEVICE, deviceHandle);
+            }
             
             D3D11_TEXTURE2D_DESC texDesc = {};
             texDesc.Width = m_DecoderParams.textureWidth;
@@ -3763,6 +3967,11 @@ void D3D12VARenderer::renderFrame(AVFrame* frame)
         
         m_D3D11DeviceContext->Signal(m_D3D11Fence.Get(), m_D3D11FenceValue);
         m_D3D11DeviceContext->Flush();
+        
+        if(m_RenderStep1 == RenderStep::UPSCALE_VPL){
+            // VPL is working natively in DX11
+            goto RenderStep1;
+        }
 
         if(m_GraphicsCommandQueue) m_GraphicsCommandQueue->Wait(m_D3D12Fence.Get(), m_D3D11FenceValue);
         if(m_VideoProcessCommandQueue) m_VideoProcessCommandQueue->Wait(m_D3D12Fence.Get(), m_D3D11FenceValue);
@@ -4026,6 +4235,64 @@ RenderStep1:
         TimerInfo("ms (AMF Convert YUV)", true);
 
         goto RenderStep2;
+    }
+    
+    // YUV Upscaling using Intel VPL
+    if(m_RenderStep1 == RenderStep::UPSCALE_VPL){
+        
+        mfxStatus sts;
+        
+        mfxMemoryInterface *memoryInterface = nullptr;
+        MFXGetMemoryInterface(m_VppSession, &memoryInterface);
+        
+        mfxSurfaceD3D11Tex2D d3d11_input = {};
+        d3d11_input.SurfaceInterface.Header.SurfaceType  = MFX_SURFACE_TYPE_D3D11_TEX2D;
+        d3d11_input.SurfaceInterface.Header.SurfaceFlags = MFX_SURFACE_FLAG_IMPORT_SHARED;
+        d3d11_input.SurfaceInterface.Header.StructSize   = sizeof(mfxSurfaceD3D11Tex2D);
+        d3d11_input.texture2D = (mfxHDL)m_D3D11FrameTexture.Get();
+        
+        mfxSurfaceHeader* input_header = reinterpret_cast<mfxSurfaceHeader*>(&d3d11_input);
+        mfxFrameSurface1* imported_in = nullptr;
+        memoryInterface->ImportFrameSurface(memoryInterface, MFX_SURFACE_COMPONENT_VPP_INPUT, input_header, &imported_in);
+        imported_in->Info = m_VppParams.vpp.In;
+        
+        mfxSurfaceD3D11Tex2D d3d11_output = {};
+        d3d11_output.SurfaceInterface.Header.SurfaceType  = MFX_SURFACE_TYPE_D3D11_TEX2D;
+        d3d11_output.SurfaceInterface.Header.SurfaceFlags = MFX_SURFACE_FLAG_IMPORT_SHARED;
+        d3d11_output.SurfaceInterface.Header.StructSize   = sizeof(mfxSurfaceD3D11Tex2D);
+        d3d11_output.texture2D = (mfxHDL)m_D3D11YUVTextureUpscaled.Get();
+        
+        mfxSurfaceHeader* output_header = reinterpret_cast<mfxSurfaceHeader*>(&d3d11_output);
+        mfxFrameSurface1* imported_out = nullptr;
+        memoryInterface->ImportFrameSurface(memoryInterface, MFX_SURFACE_COMPONENT_VPP_OUTPUT, output_header, &imported_out);
+        imported_out->Info = m_VppParams.vpp.Out;
+        
+        // [ToDo] Try to use ImportFrameSurface at initialization to avoid creating at every frame to reduce latency
+        
+        sts = MFXVideoVPP_ProcessFrameAsync(m_VppSession, imported_in, &imported_out);
+        if (sts == MFX_ERR_NONE) {
+            imported_out->FrameInterface->Synchronize(imported_out, 1000);
+            
+            // [ToDo] Flush should not be needed, to remove once we can get an output texture
+            m_D3D11DeviceContext->Flush();
+            
+            if(m_GraphicsCommandQueue) m_GraphicsCommandQueue->Wait(m_D3D12Fence.Get(), m_D3D11FenceValue);
+            if(m_VideoProcessCommandQueue) m_VideoProcessCommandQueue->Wait(m_D3D12Fence.Get(), m_D3D11FenceValue);
+            if(m_AmfCommandQueue) m_AmfCommandQueue->Wait(m_D3D12Fence.Get(), m_D3D11FenceValue);
+            
+            m_D3D11FenceValue++;
+            
+            if (imported_in) imported_in->FrameInterface->Release(imported_in);
+            if (imported_out) imported_out->FrameInterface->Release(imported_out);
+            
+        } else {
+            
+            goto RendererReset;
+            
+        }
+        
+        goto RenderStep2;
+        
     }
     
 RenderStep2:

@@ -454,6 +454,29 @@ win32:!winrt {
     INCLUDEPATH += $$PWD/../third-party/RTX_Video_SDK/include
 }
 
+win32:!winrt {
+    message(Intel VPL Upscaling technologies)
+        
+    vpl_build.commands = \
+        cd $$shell_path($$PWD/../third-party/libvpl) && \
+        script\\bootstrap.bat && \
+        cmake -B _build -DCMAKE_INSTALL_PREFIX=_vplinstall && \
+        cmake --build _build --config Release && \
+        cmake --install _build --config Release
+    
+    vpl_build.CONFIG += no_link
+    QMAKE_EXTRA_TARGETS += vpl_build
+    PRE_TARGETDEPS += vpl_build    
+    
+    INCLUDEPATH += \
+        $$PWD/../third-party/libvpl/_vplinstall/lib \
+        $$PWD/../third-party/libvpl/api \
+        $$PWD/../third-party/IntelVPL \
+        $$PWD/../third-party/IntelVPL/Debug
+        
+    LIBS += -L$$PWD/../third-party/libvpl/_vplinstall/lib -lvpl
+}
+
 win32:!winrt | unix:!macx {
     message(AMD Upscaling technologies)
 
