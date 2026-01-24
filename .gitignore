@@ -23,3 +23,7 @@ third-party/*
 !third-party/stb_image/**
 !third-party/DirectXShaderCompiler/
 !third-party/DirectXShaderCompiler/**
+!third-party/OnnxModels/
+!third-party/OnnxModels/**
+!third-party/OnnxRuntimeDirectML/
+!third-party/OnnxRuntimeDirectML/**

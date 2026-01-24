@@ -155,7 +155,7 @@ unix:if(!macx|disable-prebuilts) {
     }
 }
 win32 {
-    LIBS += -llibssl -llibcrypto -lSDL2 -lSDL2_ttf -lavcodec -lavutil -lswscale -lopus -ldxgi -ld3d11 -ld3d12 -ldxguid -llibplacebo -ld3dcompiler -ldxcompiler
+    LIBS += -llibssl -llibcrypto -lSDL2 -lSDL2_ttf -lavcodec -lavutil -lswscale -lopus -ldxgi -ld3d11 -ld3d12 -ldxguid -llibplacebo -ld3dcompiler -ldxcompiler -ldirectml
     CONFIG += ffmpeg libplacebo
 }
 win32:!winrt {
@@ -453,6 +453,39 @@ win32:!winrt {
     
     INCLUDEPATH += $$PWD/../third-party/RTX_Video_SDK/include
 }
+
+
+# DirectML
+win32:!winrt {
+    message(DirecML)
+    
+    # [bruno] Ajouter la copie dans build_arch.bat
+    MODEL_ML_PATH = "$$PWD/../third-party/OnnxModels/bruno.onnx"
+    RT_DLL_PATH = "$$PWD/../third-party/OnnxRuntimeDirectML/runtimes/win-$${OS_ARCHI}/native/onnxruntime.dll"
+    
+    CONFIG(debug, debug|release) {
+        # Debug
+        copy_ml.commands = $$quote(copy /Y $$shell_path($$MODEL_ML_PATH) $$shell_path("$$OUT_PWD/debug"))
+        copy_rt.commands = $$quote(copy /Y $$shell_path($$RT_DLL_PATH) $$shell_path("$$OUT_PWD/debug"))
+    }
+    
+    CONFIG(release, debug|release) {
+        # Release
+        copy_ml.commands = $$quote(copy /Y $$shell_path($$MODEL_ML_PATH) $$shell_path("$$OUT_PWD/release"))
+        copy_rt.commands = $$quote(copy /Y $$shell_path($$RT_DLL_PATH) $$shell_path("$$OUT_PWD/release"))
+    }
+    
+    QMAKE_POST_LINK += & $$copy_ml.commands & $$copy_rt.commands
+    
+    INCLUDEPATH += $$PWD/../third-party/OnnxRuntimeDirectML/build/native/include
+    
+    LIBS += -L$$PWD/../third-party/OnnxRuntimeDirectML/runtimes/win-$${OS_ARCHI}/native -lonnxruntime
+
+    # CONFIG += c++20
+    # LIBS += -lwindowsapp
+    
+}
+
 
 win32:!winrt | unix:!macx {
     message(AMD Upscaling technologies)

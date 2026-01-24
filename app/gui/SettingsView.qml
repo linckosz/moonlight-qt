@@ -949,6 +949,10 @@ Flickable {
                             text: qsTr("NIS Sharpener")
                             val: StreamingPreferences.SRM_06
                         }
+                        ListElement {
+                            text: qsTr("DirectML")
+                            val: StreamingPreferences.SRM_07
+                        }
                     }
                     // ::onActivated must be used, as it only listens for when the index is changed by a human
                     onActivated : {

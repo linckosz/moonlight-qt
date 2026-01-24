@@ -188,6 +188,12 @@ D3D12VideoShaders::D3D12VideoShaders(
     case Enhancer::RCAS:
         initializeRCAS();
         break;
+    case Enhancer::EXTRACT_Y:
+        initializeEXTRACT_Y();
+        break;
+    case Enhancer::INSERT_Y:
+        initializeINSERT_Y();
+        break;
     case Enhancer::COPY:
         initializeCOPY();
         break;
@@ -327,11 +333,11 @@ bool D3D12VideoShaders::isUsingShader(Enhancer enhancer)
 
 bool D3D12VideoShaders::updateShaderResourceView(ID3D12Resource* resource)
 {
+    D3D12_RESOURCE_DESC desc = resource->GetDesc();
     // RGB
     if (!m_isYUV) {
         // t0
-        DXGI_FORMAT format = m_IsHDR ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
-        if (!createSRVforResource(resource, 0, format, 0)) {
+        if (!createSRVforResource(resource, 0, desc.Format, 0)) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "createSRVforResource(input) failed");
             return false;
         }
@@ -357,8 +363,7 @@ bool D3D12VideoShaders::updateShaderResourceView(ID3D12Resource* resource)
     // AYUV or Y410
     else {
         // t0: AYUV and Y410 only use 1 plan
-        DXGI_FORMAT format = m_IsHDR ? DXGI_FORMAT_R10G10B10A2_UNORM : DXGI_FORMAT_R8G8B8A8_UNORM;
-        if (!createSRVforResource(resource, 0, format, 0)) {
+        if (!createSRVforResource(resource, 0, desc.Format, 0)) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "createSRVforResource(input) failed");
             return false;
         }
@@ -692,6 +697,9 @@ bool D3D12VideoShaders::initializeCONVERT_PS()
     if (!updateShaderResourceView(m_TextureIn.Get())) {
         return false;
     }
+    
+    D3D12_RESOURCE_DESC outDesc1 = m_TextureOut->GetDesc();
+    D3D12_RESOURCE_DESC outDesc2 = m_TextureOut.Get()->GetDesc();
 
     // Create RTV descriptor for m_TextureOut at RTV index 0
     if (!createRTVforResource(m_TextureOut.Get(), 0, m_TextureOut.Get()->GetDesc().Format)) {
@@ -1666,7 +1674,7 @@ bool D3D12VideoShaders::initializeCOPY()
 
     // --- Root signature with descriptor table (t0 + u0) + root constants (4 DWORDs) ---
     CD3DX12_DESCRIPTOR_RANGE ranges[2] = {};
-    // range 0 = SRV range with 2 descriptors starting at t0
+    // range 0 = SRV range with 1 descriptor starting at t0
     ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // numDescriptors=1, baseShaderRegister=0 (t0)
     // range 1 = UAV range with 1 descriptor starting at u0
     ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0); // numDescriptors=1, baseShaderRegister=0 (u0)
@@ -1740,6 +1748,198 @@ bool D3D12VideoShaders::initializeCOPY()
     return true;
 }
 
+bool D3D12VideoShaders::initializeEXTRACT_Y()
+{
+    // Works only for YUV P010 (2 Planes)
+    if (!m_isYUV || !m_Is2Planes) return false;
+    
+    // 1 SRV heap + 1 UAV heap
+    createDescriptorHeaps(2, 0, 0);
+    
+    // Create SRV for m_TextureIn
+    if (!updateShaderResourceView(m_TextureIn.Get())) {
+        return false;
+    }
+    
+    // Create UAV for m_TextureOut
+    if (!createUAVforResource(m_TextureOut.Get(), 1, m_TextureOut->GetDesc().Format)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "createUAVforResource failed");
+        return false;
+    }
+    
+    // --- Root signature with descriptor table (t0 + u0) + root constants (4 DWORDs) ---
+    CD3DX12_DESCRIPTOR_RANGE ranges[2] = {};
+    // range 0 = SRV range with 1 descriptor starting at t0
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // numDescriptors=1, baseShaderRegister=0 (t0)
+    // range 1 = UAV range with 1 descriptor starting at u0
+    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0); // numDescriptors=1, baseShaderRegister=0 (u0)
+    
+    CD3DX12_ROOT_PARAMETER rootParams[2] = {};
+    // Table 0 = SRV range
+    rootParams[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+    // Table 1 = UAV range
+    rootParams[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+    
+    
+    // Compile compute shader (extract_y_cs.hlsl)
+    QFile file(":/enhancer/extract_y_cs.hlsl");
+    if (!file.open(QIODevice::ReadOnly)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot open extract_y_cs.hlsl");
+        return false;
+    }
+    QByteArray hlslSource = file.readAll();
+    file.close();
+    
+    ComPtr<ID3DBlob> shaderBlob;
+    ComPtr<ID3DBlob> errorBlob;
+    m_hr = D3DCompile(hlslSource.constData(), hlslSource.size(), "extract_y_cs.hlsl", nullptr, nullptr, "mainCS", "cs_5_0",
+                      D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shaderBlob, &errorBlob);
+    if(!verifyHResult(m_hr, "D3DCompile(... extract_y_cs.hlsl)")){
+        if (errorBlob) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "CS compile error: %s",
+                         (char*)errorBlob->GetBufferPointer());
+        }
+        return false;
+    }
+    
+    // create root signature
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc = {};
+    rootSigDesc.Init(_countof(rootParams), rootParams, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+    
+    ComPtr<ID3DBlob> rsBlob;
+    ComPtr<ID3DBlob> rsErr;
+    m_hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr);
+    if(!verifyHResult(m_hr, "D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr);")){
+        if (rsErr) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "RootSig serialize error: %s", (char*)rsErr->GetBufferPointer());
+        }
+        return false;
+    }
+    m_hr = m_Device->CreateRootSignature(
+        0,
+        rsBlob->GetBufferPointer(),
+        rsBlob->GetBufferSize(),
+        IID_PPV_ARGS(&m_RootSignature)
+        );
+    if(!verifyHResult(m_hr, "m_Device->CreateRootSignature(... m_RootSignature)")){
+        return false;
+    }
+    
+    // --- Create Compute PSO ---
+    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature = m_RootSignature.Get();
+    psoDesc.CS.pShaderBytecode = shaderBlob->GetBufferPointer();
+    psoDesc.CS.BytecodeLength  = shaderBlob->GetBufferSize();
+    psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    
+    m_hr = m_Device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_PipelineState));
+    if(!verifyHResult(m_hr, "m_Device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_PipelineState));")){
+        return false;
+    }
+    
+    m_DispatchX = static_cast<UINT>(std::ceil(m_OutWidth / float(16)));
+    m_DispatchY = static_cast<UINT>(std::ceil(m_OutHeight / float(16)));
+    
+    return true;
+}
+
+
+bool D3D12VideoShaders::initializeINSERT_Y()
+{
+    // Works only for YUV P010 (2 Planes)
+    if (!m_isYUV || !m_Is2Planes) return false;
+    
+    // 1 SRV heap + 1 UAV heap
+    createDescriptorHeaps(2, 0, 0);
+    
+    // Create SRV for m_TextureIn
+    if (!updateShaderResourceView(m_TextureIn.Get())) {
+        return false;
+    }
+    
+    // Create UAV for m_TextureOut
+    if (!createUAVforResource(m_TextureOut.Get(), 1, m_TextureOut->GetDesc().Format)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "createUAVforResource failed");
+        return false;
+    }
+    
+    // --- Root signature with descriptor table (t0 + u0) + root constants (4 DWORDs) ---
+    CD3DX12_DESCRIPTOR_RANGE ranges[2] = {};
+    // range 0 = SRV range with 1 descriptor starting at t0
+    ranges[0].Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0); // numDescriptors=1, baseShaderRegister=0 (t0)
+    // range 1 = UAV range with 1 descriptor starting at u0
+    ranges[1].Init(D3D12_DESCRIPTOR_RANGE_TYPE_UAV, 1, 0); // numDescriptors=1, baseShaderRegister=0 (u0)
+    
+    CD3DX12_ROOT_PARAMETER rootParams[2] = {};
+    // Table 0 = SRV range
+    rootParams[0].InitAsDescriptorTable(1, &ranges[0], D3D12_SHADER_VISIBILITY_ALL);
+    // Table 1 = UAV range
+    rootParams[1].InitAsDescriptorTable(1, &ranges[1], D3D12_SHADER_VISIBILITY_ALL);
+    
+    
+    // Compile compute shader (insert_y_cs.hlsl)
+    QFile file(":/enhancer/insert_y_cs.hlsl");
+    if (!file.open(QIODevice::ReadOnly)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot open insert_y_cs.hlsl");
+        return false;
+    }
+    QByteArray hlslSource = file.readAll();
+    file.close();
+    
+    ComPtr<ID3DBlob> shaderBlob;
+    ComPtr<ID3DBlob> errorBlob;
+    m_hr = D3DCompile(hlslSource.constData(), hlslSource.size(), "insert_y_cs.hlsl", nullptr, nullptr, "mainCS", "cs_5_0",
+                      D3DCOMPILE_OPTIMIZATION_LEVEL3, 0, &shaderBlob, &errorBlob);
+    if(!verifyHResult(m_hr, "D3DCompile(... insert_y_cs.hlsl)")){
+        if (errorBlob) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "CS compile error: %s",
+                         (char*)errorBlob->GetBufferPointer());
+        }
+        return false;
+    }
+    
+    // create root signature
+    CD3DX12_ROOT_SIGNATURE_DESC rootSigDesc = {};
+    rootSigDesc.Init(_countof(rootParams), rootParams, 0, nullptr, D3D12_ROOT_SIGNATURE_FLAG_NONE);
+    
+    ComPtr<ID3DBlob> rsBlob;
+    ComPtr<ID3DBlob> rsErr;
+    m_hr = D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr);
+    if(!verifyHResult(m_hr, "D3D12SerializeRootSignature(&rootSigDesc, D3D_ROOT_SIGNATURE_VERSION_1, &rsBlob, &rsErr);")){
+        if (rsErr) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "RootSig serialize error: %s", (char*)rsErr->GetBufferPointer());
+        }
+        return false;
+    }
+    m_hr = m_Device->CreateRootSignature(
+        0,
+        rsBlob->GetBufferPointer(),
+        rsBlob->GetBufferSize(),
+        IID_PPV_ARGS(&m_RootSignature)
+        );
+    if(!verifyHResult(m_hr, "m_Device->CreateRootSignature(... m_RootSignature)")){
+        return false;
+    }
+    
+    // --- Create Compute PSO ---
+    D3D12_COMPUTE_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature = m_RootSignature.Get();
+    psoDesc.CS.pShaderBytecode = shaderBlob->GetBufferPointer();
+    psoDesc.CS.BytecodeLength  = shaderBlob->GetBufferSize();
+    psoDesc.Flags = D3D12_PIPELINE_STATE_FLAG_NONE;
+    
+    m_hr = m_Device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_PipelineState));
+    if(!verifyHResult(m_hr, "m_Device->CreateComputePipelineState(&psoDesc, IID_PPV_ARGS(&m_PipelineState));")){
+        return false;
+    }
+    
+    m_DispatchX = static_cast<UINT>(std::ceil(m_OutWidth / float(16)));
+    m_DispatchY = static_cast<UINT>(std::ceil(m_OutHeight / float(16)));
+    
+    return true;
+}
+
+
 /* DRAW entry: record commands for selected enhancer */
 void D3D12VideoShaders::draw(
     D3D12_RESOURCE_STATES inputTextureStateIn,
@@ -1773,6 +1973,12 @@ void D3D12VideoShaders::draw(
         break;
     case Enhancer::RCAS:
         applyRCAS();
+        break;
+    case Enhancer::EXTRACT_Y:
+        applyEXTRACT_Y();
+        break;
+    case Enhancer::INSERT_Y:
+        applyINSERT_Y();
         break;
     case Enhancer::COPY:
         applyCOPY();
@@ -2179,7 +2385,7 @@ bool D3D12VideoShaders::applyRCAS()
     return true;
 }
 
-bool D3D12VideoShaders::applyCOPY()
+bool D3D12VideoShaders::applyEXTRACT_Y()
 {
     if (!m_GraphicsCommandList || !m_PipelineState) return false;
 
@@ -2254,6 +2460,164 @@ bool D3D12VideoShaders::applyCOPY()
         m_GraphicsCommandList->ResourceBarrier(NbrBarriers, barriers);
     }
 
+    return true;
+}
+
+
+bool D3D12VideoShaders::applyINSERT_Y()
+{
+    if (!m_GraphicsCommandList || !m_PipelineState) return false;
+    
+    CD3DX12_RESOURCE_BARRIER barriers[2];
+    UINT NbrBarriers;
+    
+    NbrBarriers = 0;
+    if(m_InputTextureStateIn != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureIn.Get(),
+            m_InputTextureStateIn,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+            );
+        NbrBarriers++;
+    }
+    if(m_OutputTextureStateIn != D3D12_RESOURCE_STATE_UNORDERED_ACCESS){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureOut.Get(),
+            m_OutputTextureStateIn,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+            );
+        NbrBarriers++;
+    }
+    if(NbrBarriers > 0){
+        m_GraphicsCommandList->ResourceBarrier(NbrBarriers, barriers);
+    }
+    
+    // Guarantee descriptor heap is set
+    ID3D12DescriptorHeap* heaps[] = { m_DescriptorHeapCBV_SRV_UAV.Get() };
+    m_GraphicsCommandList->SetDescriptorHeaps(_countof(heaps), heaps);
+    
+    // Bind compute root signature & PSO
+    m_GraphicsCommandList->SetComputeRootSignature(m_RootSignature.Get());
+    m_GraphicsCommandList->SetPipelineState(m_PipelineState.Get());
+    
+    // Set SRV descriptor table (descriptor 0)
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandleSRVs(
+        m_DescriptorHeapCBV_SRV_UAV->GetGPUDescriptorHandleForHeapStart(),
+        0,
+        m_DescriptorSizeCBV_SRV_UAV
+        );
+    m_GraphicsCommandList->SetComputeRootDescriptorTable(0, gpuHandleSRVs);
+    
+    // Set UAV descriptor table (descriptor 1)
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandleUAV(
+        m_DescriptorHeapCBV_SRV_UAV->GetGPUDescriptorHandleForHeapStart(),
+        1,
+        m_DescriptorSizeCBV_SRV_UAV);
+    m_GraphicsCommandList->SetComputeRootDescriptorTable(1, gpuHandleUAV);
+    
+    // Dispatch
+    m_GraphicsCommandList->Dispatch(m_DispatchX, m_DispatchY, 1);
+    
+    NbrBarriers = 0;
+    if(m_InputTextureStateOut != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureIn.Get(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            m_InputTextureStateOut
+            );
+        NbrBarriers++;
+    }
+    if(m_OutputTextureStateOut != D3D12_RESOURCE_STATE_UNORDERED_ACCESS){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureOut.Get(),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            m_OutputTextureStateOut
+            );
+        NbrBarriers++;
+    }
+    if(NbrBarriers > 0){
+        m_GraphicsCommandList->ResourceBarrier(NbrBarriers, barriers);
+    }
+    
+    return true;
+}
+
+
+bool D3D12VideoShaders::applyCOPY()
+{
+    if (!m_GraphicsCommandList || !m_PipelineState) return false;
+    
+    CD3DX12_RESOURCE_BARRIER barriers[2];
+    UINT NbrBarriers;
+    
+    NbrBarriers = 0;
+    if(m_InputTextureStateIn != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureIn.Get(),
+            m_InputTextureStateIn,
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
+            );
+        NbrBarriers++;
+    }
+    if(m_OutputTextureStateIn != D3D12_RESOURCE_STATE_UNORDERED_ACCESS){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureOut.Get(),
+            m_OutputTextureStateIn,
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS
+            );
+        NbrBarriers++;
+    }
+    if(NbrBarriers > 0){
+        m_GraphicsCommandList->ResourceBarrier(NbrBarriers, barriers);
+    }
+    
+    // Guarantee descriptor heap is set
+    ID3D12DescriptorHeap* heaps[] = { m_DescriptorHeapCBV_SRV_UAV.Get() };
+    m_GraphicsCommandList->SetDescriptorHeaps(_countof(heaps), heaps);
+    
+    // Bind compute root signature & PSO
+    m_GraphicsCommandList->SetComputeRootSignature(m_RootSignature.Get());
+    m_GraphicsCommandList->SetPipelineState(m_PipelineState.Get());
+    
+    // Set SRV descriptor table (descriptor 0)
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandleSRVs(
+        m_DescriptorHeapCBV_SRV_UAV->GetGPUDescriptorHandleForHeapStart(),
+        0,
+        m_DescriptorSizeCBV_SRV_UAV
+        );
+    m_GraphicsCommandList->SetComputeRootDescriptorTable(0, gpuHandleSRVs);
+    
+    // Set UAV descriptor table (descriptor 1)
+    CD3DX12_GPU_DESCRIPTOR_HANDLE gpuHandleUAV(
+        m_DescriptorHeapCBV_SRV_UAV->GetGPUDescriptorHandleForHeapStart(),
+        1,
+        m_DescriptorSizeCBV_SRV_UAV);
+    m_GraphicsCommandList->SetComputeRootDescriptorTable(1, gpuHandleUAV);
+    
+    // Dispatch
+    m_GraphicsCommandList->Dispatch(m_DispatchX, m_DispatchY, 1);
+    
+    NbrBarriers = 0;
+    if(m_InputTextureStateOut != D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureIn.Get(),
+            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
+            m_InputTextureStateOut
+            );
+        NbrBarriers++;
+    }
+    if(m_OutputTextureStateOut != D3D12_RESOURCE_STATE_UNORDERED_ACCESS){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureOut.Get(),
+            D3D12_RESOURCE_STATE_UNORDERED_ACCESS,
+            m_OutputTextureStateOut
+            );
+        NbrBarriers++;
+    }
+    if(NbrBarriers > 0){
+        m_GraphicsCommandList->ResourceBarrier(NbrBarriers, barriers);
+    }
+    
     return true;
 }
 

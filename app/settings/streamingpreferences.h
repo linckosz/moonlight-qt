@@ -34,7 +34,8 @@ public:
         SRM_03,
         SRM_04,
         SRM_05,
-        SRM_06
+        SRM_06,
+        SRM_07
     };
     Q_ENUM(SuperResolutionMode)
 

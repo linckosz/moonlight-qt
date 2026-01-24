@@ -29,6 +29,12 @@ using namespace amf;
 #include <nvsdk_ngx_defs_vsr.h>
 #include <nvsdk_ngx_helpers_vsr.h>
 
+// DirectML
+#include <directml.h>
+#include <onnxruntime_cxx_api.h>
+#include <onnxruntime_c_api.h>
+#include <dml_provider_factory.h>
+
 extern "C" {
 #include <libavutil/hwcontext.h>
 #include <libavutil/hwcontext_d3d11va.h>
@@ -100,6 +106,7 @@ private:
     void reloadOnResize();
     void waitForVideoProcess(bool waitCPU = false);
     void waitForGraphics(bool waitCPU = false);
+    void waitForDirectML(bool waitCPU = false);
     void waitForOverlay(bool waitCPU = false);
     void renderOverlay(Overlay::OverlayType type);
 
@@ -117,6 +124,7 @@ private:
         UPSCALE_VIDEOPROCESSOR,
         UPSCALE_AMF,
         UPSCALE_VSR,
+        UPSCALE_DML,
         SHARPEN_SHADER,
         NONE
     };
@@ -174,9 +182,15 @@ private:
     int m_DisplayHeight;
     TextureInfo m_OutputTextureInfo;
     ComPtr<ID3D12Resource> m_FrameTexture;
-    ComPtr<ID3D12Resource> m_RGBTexture;
-    ComPtr<ID3D12Resource> m_RGBTextureUpscaled;
+    ComPtr<ID3D12Resource> m_YUVTexture;
     ComPtr<ID3D12Resource> m_YUVTextureUpscaled;
+    ComPtr<ID3D12Resource> m_YUVTextureUpscaledP010;
+    ComPtr<ID3D12Resource> m_YTexture;
+    ComPtr<ID3D12Resource> m_YTextureUpscaled;
+    ComPtr<ID3D12Resource> m_RGBTexture;
+    ComPtr<ID3D12Resource> m_RGBTextureFloat;
+    ComPtr<ID3D12Resource> m_RGBTextureUpscaled;
+    ComPtr<ID3D12Resource> m_RGBTextureUpscaledFloat;
     ComPtr<ID3D12Resource> m_OutputTexture;
     ComPtr<ID3D12Resource> m_OutputTexturePrevious;
     DXGI_FORMAT m_RGBFormat;
@@ -220,14 +234,23 @@ private:
     INT32 m_EdgeEnhancementValue = 0;
     bool m_VideoProcessorAutoProcessing = false;
     ComPtr<ID3D12VideoProcessor1> m_VideoProcessorConvert;
+    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorConvertP010;
     ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscaler;
+    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscalerP010;
     ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscalerConvert;
+    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscalerConvertFromP010;
     std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsConvert;
     std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsConvert;
     std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscaler;
     std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscaler;
     std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscalerConvert;
     std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscalerConvert;
+    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsConvertToP010;
+    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsConvertToP010;
+    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscaleP010;
+    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscaleP010;
+    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscalerConvertFromP010;
+    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscalerConvertFromP010;
     
     ComPtr<ID3D12CommandAllocator> m_VideoProcessCommandAllocator;
     ComPtr<ID3D12VideoProcessCommandList3> m_VideoProcessCommandList;
@@ -235,6 +258,9 @@ private:
     ComPtr<ID3D12CommandAllocator> m_GraphicsCommandAllocator;
     ComPtr<ID3D12GraphicsCommandList7> m_GraphicsCommandList;
     ComPtr<ID3D12CommandQueue> m_GraphicsCommandQueue;
+    ComPtr<ID3D12CommandAllocator> m_DirectMLCommandAllocator;
+    ComPtr<ID3D12GraphicsCommandList7> m_DirectMLCommandList;
+    ComPtr<ID3D12CommandQueue> m_DirectMLCommandQueue;
     ComPtr<ID3D12CommandAllocator> m_OverlayCommandAllocator;
     ComPtr<ID3D12GraphicsCommandList7> m_OverlayCommandList;
     ComPtr<ID3D12CommandQueue> m_OverlayCommandQueue;
@@ -248,6 +274,9 @@ private:
     ComPtr<ID3D12Fence> m_FenceGraphics;
     UINT64 m_FenceGraphicsValue = 0;
     HANDLE m_FenceGraphicsEvent = nullptr;
+    ComPtr<ID3D12Fence> m_FenceDirectML;
+    UINT64 m_FenceDirectMLValue = 0;
+    HANDLE m_FenceDirectMLEvent = nullptr;
     ComPtr<ID3D12Fence> m_FenceOverlay;
     UINT64 m_FenceOverlayValue = 0;
     HANDLE m_FenceOverlayEvent = nullptr;
@@ -294,6 +323,8 @@ private:
     std::unique_ptr<D3D12VideoShaders> m_ShaderConverter = nullptr;
     std::unique_ptr<D3D12VideoShaders> m_ShaderUpscaler = nullptr;
     std::unique_ptr<D3D12VideoShaders> m_ShaderSharpener = nullptr;
+    std::unique_ptr<D3D12VideoShaders> m_ShaderExtractY = nullptr;
+    std::unique_ptr<D3D12VideoShaders> m_ShaderInsertY = nullptr;
 
     // AMD AMF
     AMFContext2Ptr m_AmfContext;
@@ -324,6 +355,16 @@ private:
     NVSDK_NGX_Handle* m_TrueHDRFeature = nullptr;
     RECT m_NGXSrcRect = {};
     RECT m_NGXDstRect = {};
+    
+    // DirectML
+    ComPtr<IDMLDevice> m_DmlDevice;
+    std::unique_ptr<Ort::Session> m_OrtSession;
+    Ort::AllocatorWithDefaultOptions m_OrtAllocator;
+    const OrtDmlApi* m_OrtDmlApi = nullptr;
+    void* m_DmlInputAllocation = nullptr;
+    void* m_DmlOutputAllocation = nullptr;
+    Ort::Value m_InputTensor = nullptr;
+    Ort::Value m_OutputTensor = nullptr;
     
     // Used for debug purpose only
     ComPtr<ID3D12CommandAllocator> m_PictureCommandAllocator;

@@ -313,6 +313,7 @@ StreamCommandLineParser::StreamCommandLineParser()
         {"nis-upscaler",               StreamingPreferences::SRM_04},
         {"rcas-sharpener",             StreamingPreferences::SRM_05},
         {"nis-sharpener",              StreamingPreferences::SRM_06},
+        {"directml",                   StreamingPreferences::SRM_07},        
     };
     m_VideoCodecMap = {
         {"auto",  StreamingPreferences::VCC_AUTO},
