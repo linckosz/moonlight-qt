@@ -33,8 +33,6 @@ public:
         NIS_SHARPENER,
         FSR1,
         RCAS,
-        EXTRACT_Y,
-        INSERT_Y,
         COPY
     };
 
@@ -221,16 +219,12 @@ private:
     bool initializeNIS(bool isUpscaling = true);
     bool initializeFSR1();
     bool initializeRCAS();
-    bool initializeEXTRACT_Y();
-    bool initializeINSERT_Y();
     bool initializeCOPY();
 
     bool applyCONVERT_PS();
     bool applyNIS();
     bool applyFSR1();
     bool applyRCAS();
-    bool applyEXTRACT_Y();
-    bool applyINSERT_Y();
     bool applyCOPY();
 
     // NVIDIA Image Scaling

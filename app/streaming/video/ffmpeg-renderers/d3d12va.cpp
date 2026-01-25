@@ -91,13 +91,11 @@ D3D12VARenderer::~D3D12VARenderer()
     // Textures
     m_D3D11FrameTexture.Reset();
     m_FrameTexture.Reset();
-    m_RGBTexture.Reset();
-    m_RGBTextureFloat.Reset();
-    m_RGBTextureUpscaled.Reset();
-    m_RGBTextureUpscaledFloat.Reset();
-    m_YUVTexture.Reset();
     m_YUVTextureUpscaled.Reset();
-    m_YUVTextureUpscaledP010.Reset();
+    m_RGBTexture.Reset();
+    m_RGBTextureUpscaled.Reset();
+    m_ONNXTexture.Reset();
+    m_ONNXTextureUpscaled.Reset();
     m_OutputTexture.Reset();
     m_OutputTexturePrevious.Reset();
     for (auto& item : m_OverlayTextures) {
@@ -145,10 +143,11 @@ D3D12VARenderer::~D3D12VARenderer()
     m_FenceAMF.Reset();
 
     m_VideoProcessorConvert.Reset();
-    m_VideoProcessorConvertP010.Reset();
     m_VideoProcessorUpscaler.Reset();
-    m_VideoProcessorUpscalerP010.Reset();
     m_VideoProcessorUpscalerConvert.Reset();
+    m_VideoProcessorConvertONNX.Reset();
+    m_VideoProcessorFormatONNX.Reset();
+    m_VideoProcessorResizeONNX.Reset();
     m_VideoDevice.Reset();
 
     if (m_D3D11DeviceContext) {
@@ -1631,6 +1630,11 @@ void D3D12VARenderer::TimerInfo(const char* comment, bool start)
  */
 bool D3D12VARenderer::checkDecoderType()
 {
+    if(m_VideoEnhancement->getDeviceType() == AV_HWDEVICE_TYPE_D3D12VA){
+        return true;
+    }
+    return false;
+    
     // FFmpeg decoder in yuv 4:4:4 only works with D3D11
     if(m_yuv444){
         if(m_VideoEnhancement->getDeviceType() == AV_HWDEVICE_TYPE_D3D11VA){
@@ -2099,33 +2103,6 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             return false;
         }
         
-        // YUV texture
-        CD3DX12_HEAP_PROPERTIES heapYUVProps(D3D12_HEAP_TYPE_DEFAULT);
-        
-        D3D12_RESOURCE_DESC descYUV = {};
-        descYUV.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        descYUV.Alignment = 0;
-        descYUV.Width = m_DecoderParams.textureWidth;
-        descYUV.Height = m_DecoderParams.textureHeight;
-        descYUV.DepthOrArraySize = 1;
-        descYUV.MipLevels = 1;
-        descYUV.Format = DXGI_FORMAT_P010;
-        descYUV.SampleDesc.Count = 1;
-        descYUV.SampleDesc.Quality = 0;
-        descYUV.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        descYUV.Flags =  D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
-        m_hr = m_Device->CreateCommittedResource(
-            &heapYUVProps,
-            D3D12_HEAP_FLAG_NONE,
-            &descYUV,
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&m_YUVTexture)
-            );
-        if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_YUVTexture)")){
-            return false;
-        }
-        
         // Upscaled YUV texture
         CD3DX12_HEAP_PROPERTIES heapYUVupProps(D3D12_HEAP_TYPE_DEFAULT);
         
@@ -2151,88 +2128,6 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             IID_PPV_ARGS(&m_YUVTextureUpscaled)
             );
         if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_YUVTextureUpscaled)")){
-            return false;
-        }
-        
-        // Upscaled YUVx2 texture
-        CD3DX12_HEAP_PROPERTIES heapYUVx2upProps(D3D12_HEAP_TYPE_DEFAULT);
-        
-        D3D12_RESOURCE_DESC descYUVx2up = {};
-        descYUVx2up.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        descYUVx2up.Alignment = 0;
-        descYUVx2up.Width = m_DecoderParams.textureWidth * 2;
-        descYUVx2up.Height = m_DecoderParams.textureHeight * 2;
-        descYUVx2up.DepthOrArraySize = 1;
-        descYUVx2up.MipLevels = 1;
-        // We need 2 planes YUV as we will replace the plane 0 with the upscaled texture via ONNX
-        descYUVx2up.Format = DXGI_FORMAT_P010;
-        descYUVx2up.SampleDesc.Count = 1;
-        descYUVx2up.SampleDesc.Quality = 0;
-        descYUVx2up.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        descYUVx2up.Flags = D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET | D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_SIMULTANEOUS_ACCESS;
-        m_hr = m_Device->CreateCommittedResource(
-            &heapYUVx2upProps,
-            D3D12_HEAP_FLAG_NONE,
-            &descYUVx2up,
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&m_YUVTextureUpscaledP010)
-            );
-        if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_YUVTextureUpscaledP010)")){
-            return false;
-        }
-        
-        // Y texture
-        CD3DX12_HEAP_PROPERTIES heapYProps(D3D12_HEAP_TYPE_DEFAULT);
-        
-        D3D12_RESOURCE_DESC descY = {};
-        descY.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        descY.Alignment = 0;
-        descY.Width = m_DecoderParams.textureWidth;
-        descY.Height = m_DecoderParams.textureHeight;
-        descY.DepthOrArraySize = 1;
-        descY.MipLevels = 1;
-        descY.Format = DXGI_FORMAT_R32_FLOAT;
-        descY.SampleDesc.Count = 1;
-        descY.SampleDesc.Quality = 0;
-        descY.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        descY.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-        m_hr = m_Device->CreateCommittedResource(
-            &heapYProps,
-            D3D12_HEAP_FLAG_NONE,
-            &descY,
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&m_YTexture)
-            );
-        if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_YTexture)")){
-            return false;
-        }
-        
-        // Upscaled Y texture
-        CD3DX12_HEAP_PROPERTIES heapY2Props(D3D12_HEAP_TYPE_DEFAULT);
-        
-        D3D12_RESOURCE_DESC descY2 = {};
-        descY2.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
-        descY2.Alignment = 0;
-        descY2.Width = m_DecoderParams.textureWidth * 2;
-        descY2.Height = m_DecoderParams.textureHeight * 2;
-        descY2.DepthOrArraySize = 1;
-        descY2.MipLevels = 1;
-        descY2.Format = DXGI_FORMAT_R32_FLOAT;
-        descY2.SampleDesc.Count = 1;
-        descY2.SampleDesc.Quality = 0;
-        descY2.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
-        descY2.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS | D3D12_RESOURCE_FLAG_ALLOW_RENDER_TARGET;
-        m_hr = m_Device->CreateCommittedResource(
-            &heapY2Props,
-            D3D12_HEAP_FLAG_NONE,
-            &descY2,
-            D3D12_RESOURCE_STATE_COMMON,
-            nullptr,
-            IID_PPV_ARGS(&m_YTextureUpscaled)
-            );
-        if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_YTextureUpscaled)")){
             return false;
         }
         
@@ -2455,6 +2350,65 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             return false;
         }
     }
+    
+    // ONNX Textures initialization
+    if (m_RenderStep1 == RenderStep::UPSCALE_DML) {
+        
+        CD3DX12_HEAP_PROPERTIES heapProps(D3D12_HEAP_TYPE_DEFAULT);
+        
+        D3D12_RESOURCE_DESC desc = {};
+        desc.Dimension = D3D12_RESOURCE_DIMENSION_TEXTURE2D;
+        desc.Alignment = 0;
+        desc.Width = 256;//(m_DecoderParams.textureWidth + 3) & ~3;
+        desc.Height = 256;//(m_DecoderParams.textureHeight + 3) & ~3;
+        desc.DepthOrArraySize = 1;
+        desc.MipLevels = 1;
+        desc.Format = m_RGBFormat;
+        desc.SampleDesc.Count = 1;
+        desc.SampleDesc.Quality = 0;
+        desc.Layout = D3D12_TEXTURE_LAYOUT_UNKNOWN;
+        desc.Flags = D3D12_RESOURCE_FLAG_ALLOW_UNORDERED_ACCESS;
+        
+        m_hr = m_Device->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_COMMON,
+            nullptr,
+            IID_PPV_ARGS(&m_ONNXTexture)
+            );
+        if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_ONNXTexture)")){
+            return false;
+        }
+        
+        
+        desc.Width = 256 * 2;//m_DecoderParams.textureWidth * 2;
+        desc.Height = 256 * 2;//m_DecoderParams.textureHeight * 2;
+        m_hr = m_Device->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_COMMON,
+            nullptr,
+            IID_PPV_ARGS(&m_ONNXTextureUpscaled)
+            );
+        if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_ONNXTextureUpscaled)")){
+            return false;
+        }
+        
+        desc.Format = m_RGBFormat;
+        m_hr = m_Device->CreateCommittedResource(
+            &heapProps,
+            D3D12_HEAP_FLAG_NONE,
+            &desc,
+            D3D12_RESOURCE_STATE_COMMON,
+            nullptr,
+            IID_PPV_ARGS(&m_ONNXTextureFormated)
+            );
+        if(!verifyHResult(m_hr, "m_Device->CreateCommittedResource(... m_ONNXTextureFormated)")){
+            return false;
+        }
+    }
 
     // SwapChain initialization
     {
@@ -2542,12 +2496,12 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         m_OutputArgsUpscaler.resize(m_FrameCount);
         m_InputArgsUpscalerConvert.resize(m_FrameCount);
         m_OutputArgsUpscalerConvert.resize(m_FrameCount);
-        m_InputArgsConvertToP010.resize(m_FrameCount);
-        m_OutputArgsConvertToP010.resize(m_FrameCount);
-        m_InputArgsUpscaleP010.resize(m_FrameCount);
-        m_OutputArgsUpscaleP010.resize(m_FrameCount);
-        m_InputArgsUpscalerConvertFromP010.resize(m_FrameCount);
-        m_OutputArgsUpscalerConvertFromP010.resize(m_FrameCount);
+        m_InputArgsConvertONNX.resize(m_FrameCount);
+        m_OutputArgsConvertONNX.resize(m_FrameCount);
+        m_InputArgsFormatONNX.resize(m_FrameCount);
+        m_OutputArgsFormatONNX.resize(m_FrameCount);
+        m_InputArgsResizeONNX.resize(m_FrameCount);
+        m_OutputArgsResizeONNX.resize(m_FrameCount);
 
         for (UINT n = 0; n < m_FrameCount; n++) {
 
@@ -2668,117 +2622,117 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
                 static_cast<LONG>(m_OutputTextureInfo.height)
             };
             
-            // CONVERT to P010
+            // CONVERT to RGB16
             
             // Input
-            m_InputArgsConvertToP010[n].InputStream[0].pTexture2D = m_FrameTexture.Get();
-            m_InputArgsConvertToP010[n].InputStream[0].Subresource = 0;
-            m_InputArgsConvertToP010[n].InputStream[1].pTexture2D = nullptr;
-            m_InputArgsConvertToP010[n].InputStream[1].Subresource = 0;
-            m_InputArgsConvertToP010[n].Transform.Orientation = D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT;
-            m_InputArgsConvertToP010[n].Transform.SourceRectangle = {
+            m_InputArgsConvertONNX[n].InputStream[0].pTexture2D = m_FrameTexture.Get();
+            m_InputArgsConvertONNX[n].InputStream[0].Subresource = 0;
+            m_InputArgsConvertONNX[n].InputStream[1].pTexture2D = nullptr;
+            m_InputArgsConvertONNX[n].InputStream[1].Subresource = 0;
+            m_InputArgsConvertONNX[n].Transform.Orientation = D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT;
+            m_InputArgsConvertONNX[n].Transform.SourceRectangle = {
                 0,
                 0,
                 static_cast<LONG>(m_DecoderParams.textureWidth),
                 static_cast<LONG>(m_DecoderParams.textureHeight)
             };
-            m_InputArgsConvertToP010[n].Transform.DestinationRectangle = {
+            m_InputArgsConvertONNX[n].Transform.DestinationRectangle = {
                 0,
                 0,
-                static_cast<LONG>(m_DecoderParams.textureWidth),
-                static_cast<LONG>(m_DecoderParams.textureHeight)
+                static_cast<LONG>(256),//((m_DecoderParams.textureWidth + 3) & ~3),
+                static_cast<LONG>(256)//((m_DecoderParams.textureHeight + 3) & ~3)
             };
-            m_InputArgsConvertToP010[n].Flags = D3D12_VIDEO_PROCESS_INPUT_STREAM_FLAG_NONE;
-            m_InputArgsConvertToP010[n].RateInfo.OutputIndex = 0;
-            m_InputArgsConvertToP010[n].RateInfo.InputFrameOrField = 0;
-            m_InputArgsConvertToP010[n].AlphaBlending.Enable = FALSE;
-            m_InputArgsConvertToP010[n].AlphaBlending.Alpha = 1.0f;
-            m_InputArgsConvertToP010[n].FieldType = D3D12_VIDEO_FIELD_TYPE_NONE;
+            m_InputArgsConvertONNX[n].Flags = D3D12_VIDEO_PROCESS_INPUT_STREAM_FLAG_NONE;
+            m_InputArgsConvertONNX[n].RateInfo.OutputIndex = 0;
+            m_InputArgsConvertONNX[n].RateInfo.InputFrameOrField = 0;
+            m_InputArgsConvertONNX[n].AlphaBlending.Enable = FALSE;
+            m_InputArgsConvertONNX[n].AlphaBlending.Alpha = 1.0f;
+            m_InputArgsConvertONNX[n].FieldType = D3D12_VIDEO_FIELD_TYPE_NONE;
             
             // Output
-            m_OutputArgsConvertToP010[n].OutputStream[0].pTexture2D = m_YUVTexture.Get();
-            m_OutputArgsConvertToP010[n].OutputStream[0].Subresource = 0;
-            m_OutputArgsConvertToP010[n].OutputStream[1].pTexture2D = nullptr;
-            m_OutputArgsConvertToP010[n].OutputStream[1].Subresource = 0;
-            m_OutputArgsConvertToP010[n].TargetRectangle = {
+            m_OutputArgsConvertONNX[n].OutputStream[0].pTexture2D = m_ONNXTexture.Get();
+            m_OutputArgsConvertONNX[n].OutputStream[0].Subresource = 0;
+            m_OutputArgsConvertONNX[n].OutputStream[1].pTexture2D = nullptr;
+            m_OutputArgsConvertONNX[n].OutputStream[1].Subresource = 0;
+            m_OutputArgsConvertONNX[n].TargetRectangle = {
                 0,
                 0,
-                static_cast<LONG>(m_DecoderParams.textureWidth),
-                static_cast<LONG>(m_DecoderParams.textureHeight)
+                static_cast<LONG>(256),//((m_DecoderParams.textureWidth + 3) & ~3),
+                static_cast<LONG>(256)//((m_DecoderParams.textureHeight + 3) & ~3)
             };
             
-            // UPSCALE P010
+            // FORMAT ONNX to RGB
             
             // Input
-            m_InputArgsUpscaleP010[n].InputStream[0].pTexture2D = m_YUVTexture.Get();
-            m_InputArgsUpscaleP010[n].InputStream[0].Subresource = 0;
-            m_InputArgsUpscaleP010[n].InputStream[1].pTexture2D = nullptr;
-            m_InputArgsUpscaleP010[n].InputStream[1].Subresource = 0;
-            m_InputArgsUpscaleP010[n].Transform.Orientation = D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT;
-            m_InputArgsUpscaleP010[n].Transform.SourceRectangle = {
+            m_InputArgsFormatONNX[n].InputStream[0].pTexture2D = m_ONNXTextureUpscaled.Get();
+            m_InputArgsFormatONNX[n].InputStream[0].Subresource = 0;
+            m_InputArgsFormatONNX[n].InputStream[1].pTexture2D = nullptr;
+            m_InputArgsFormatONNX[n].InputStream[1].Subresource = 0;
+            m_InputArgsFormatONNX[n].Transform.Orientation = D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT;
+            m_InputArgsFormatONNX[n].Transform.SourceRectangle = {
                 0,
                 0,
-                static_cast<LONG>(m_DecoderParams.textureWidth),
-                static_cast<LONG>(m_DecoderParams.textureHeight)
+                static_cast<LONG>(256 * 2),//(m_DecoderParams.textureWidth * 2),
+                static_cast<LONG>(256 * 2)//(m_DecoderParams.textureHeight * 2)
             };
-            m_InputArgsUpscaleP010[n].Transform.DestinationRectangle = {
+            m_InputArgsFormatONNX[n].Transform.DestinationRectangle = {
                 0,
                 0,
                 static_cast<LONG>(m_DecoderParams.textureWidth * 2),
                 static_cast<LONG>(m_DecoderParams.textureHeight * 2)
             };
-            m_InputArgsUpscaleP010[n].Flags = D3D12_VIDEO_PROCESS_INPUT_STREAM_FLAG_NONE;
-            m_InputArgsUpscaleP010[n].RateInfo.OutputIndex = 0;
-            m_InputArgsUpscaleP010[n].RateInfo.InputFrameOrField = 0;
-            m_InputArgsUpscaleP010[n].AlphaBlending.Enable = FALSE;
-            m_InputArgsUpscaleP010[n].AlphaBlending.Alpha = 1.0f;
-            m_InputArgsUpscaleP010[n].FieldType = D3D12_VIDEO_FIELD_TYPE_NONE;
+            m_InputArgsFormatONNX[n].Flags = D3D12_VIDEO_PROCESS_INPUT_STREAM_FLAG_NONE;
+            m_InputArgsFormatONNX[n].RateInfo.OutputIndex = 0;
+            m_InputArgsFormatONNX[n].RateInfo.InputFrameOrField = 0;
+            m_InputArgsFormatONNX[n].AlphaBlending.Enable = FALSE;
+            m_InputArgsFormatONNX[n].AlphaBlending.Alpha = 1.0f;
+            m_InputArgsFormatONNX[n].FieldType = D3D12_VIDEO_FIELD_TYPE_NONE;
             
             // Output
-            m_OutputArgsUpscaleP010[n].OutputStream[0].pTexture2D = m_YUVTextureUpscaledP010.Get();
-            m_OutputArgsUpscaleP010[n].OutputStream[0].Subresource = 0;
-            m_OutputArgsUpscaleP010[n].OutputStream[1].pTexture2D = nullptr;
-            m_OutputArgsUpscaleP010[n].OutputStream[1].Subresource = 0;
-            m_OutputArgsUpscaleP010[n].TargetRectangle = {
+            m_OutputArgsFormatONNX[n].OutputStream[0].pTexture2D = m_ONNXTextureFormated.Get();
+            m_OutputArgsFormatONNX[n].OutputStream[0].Subresource = 0;
+            m_OutputArgsFormatONNX[n].OutputStream[1].pTexture2D = nullptr;
+            m_OutputArgsFormatONNX[n].OutputStream[1].Subresource = 0;
+            m_OutputArgsFormatONNX[n].TargetRectangle = {
                 0,
                 0,
                 static_cast<LONG>(m_DecoderParams.textureWidth * 2),
                 static_cast<LONG>(m_DecoderParams.textureHeight * 2)
             };
             
-            // CONVERT P010 to RGB
+            // Resize ONNX
             
             // Input
-            m_InputArgsUpscalerConvertFromP010[n].InputStream[0].pTexture2D = m_YUVTextureUpscaledP010.Get();
-            m_InputArgsUpscalerConvertFromP010[n].InputStream[0].Subresource = 0;
-            m_InputArgsUpscalerConvertFromP010[n].InputStream[1].pTexture2D = nullptr;
-            m_InputArgsUpscalerConvertFromP010[n].InputStream[1].Subresource = 0;
-            m_InputArgsUpscalerConvertFromP010[n].Transform.Orientation = D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT;
-            m_InputArgsUpscalerConvertFromP010[n].Transform.SourceRectangle = {
+            m_InputArgsResizeONNX[n].InputStream[0].pTexture2D = m_ONNXTextureFormated.Get();
+            m_InputArgsResizeONNX[n].InputStream[0].Subresource = 0;
+            m_InputArgsResizeONNX[n].InputStream[1].pTexture2D = nullptr;
+            m_InputArgsResizeONNX[n].InputStream[1].Subresource = 0;
+            m_InputArgsResizeONNX[n].Transform.Orientation = D3D12_VIDEO_PROCESS_ORIENTATION_DEFAULT;
+            m_InputArgsResizeONNX[n].Transform.SourceRectangle = {
                 0,
                 0,
                 static_cast<LONG>(m_DecoderParams.textureWidth * 2),
                 static_cast<LONG>(m_DecoderParams.textureHeight * 2)
             };
-            m_InputArgsUpscalerConvertFromP010[n].Transform.DestinationRectangle = {
+            m_InputArgsResizeONNX[n].Transform.DestinationRectangle = {
                 0,
                 0,
                 static_cast<LONG>(m_OutputTextureInfo.width),
                 static_cast<LONG>(m_OutputTextureInfo.height)
             };
-            m_InputArgsUpscalerConvertFromP010[n].Flags = D3D12_VIDEO_PROCESS_INPUT_STREAM_FLAG_NONE;
-            m_InputArgsUpscalerConvertFromP010[n].RateInfo.OutputIndex = 0;
-            m_InputArgsUpscalerConvertFromP010[n].RateInfo.InputFrameOrField = 0;
-            m_InputArgsUpscalerConvertFromP010[n].AlphaBlending.Enable = FALSE;
-            m_InputArgsUpscalerConvertFromP010[n].AlphaBlending.Alpha = 1.0f;
-            m_InputArgsUpscalerConvertFromP010[n].FieldType = D3D12_VIDEO_FIELD_TYPE_NONE;
+            m_InputArgsResizeONNX[n].Flags = D3D12_VIDEO_PROCESS_INPUT_STREAM_FLAG_NONE;
+            m_InputArgsResizeONNX[n].RateInfo.OutputIndex = 0;
+            m_InputArgsResizeONNX[n].RateInfo.InputFrameOrField = 0;
+            m_InputArgsResizeONNX[n].AlphaBlending.Enable = FALSE;
+            m_InputArgsResizeONNX[n].AlphaBlending.Alpha = 1.0f;
+            m_InputArgsResizeONNX[n].FieldType = D3D12_VIDEO_FIELD_TYPE_NONE;
             
             // Output
-            m_OutputArgsUpscalerConvertFromP010[n].OutputStream[0].pTexture2D = m_OutputTexture.Get();
-            m_OutputArgsUpscalerConvertFromP010[n].OutputStream[0].Subresource = 0;
-            m_OutputArgsUpscalerConvertFromP010[n].OutputStream[1].pTexture2D = nullptr;
-            m_OutputArgsUpscalerConvertFromP010[n].OutputStream[1].Subresource = 0;
-            m_OutputArgsUpscalerConvertFromP010[n].TargetRectangle = {
+            m_OutputArgsResizeONNX[n].OutputStream[0].pTexture2D = m_OutputTexture.Get();
+            m_OutputArgsResizeONNX[n].OutputStream[0].Subresource = 0;
+            m_OutputArgsResizeONNX[n].OutputStream[1].pTexture2D = nullptr;
+            m_OutputArgsResizeONNX[n].OutputStream[1].Subresource = 0;
+            m_OutputArgsResizeONNX[n].TargetRectangle = {
                 0,
                 0,
                 static_cast<LONG>(m_OutputTextureInfo.width),
@@ -2835,24 +2789,40 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             static_cast<UINT>(m_OutputTextureInfo.height)
         };
         
-        D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC inputStreamUpscalerP010 = inputStreamConvert;
-        inputStreamUpscalerP010.Format = DXGI_FORMAT_P010;
-        inputStreamUpscalerP010.DestinationSizeRange = {
+        D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC inputStreamConvertONNX = inputStreamConvert;
+        inputStreamConvertONNX.DestinationSizeRange = {
+            static_cast<UINT>(256),//((m_DecoderParams.textureWidth + 3) & ~3),
+            static_cast<UINT>(256),//((m_DecoderParams.textureHeight + 3) & ~3),
+            static_cast<UINT>(256),//((m_DecoderParams.textureWidth + 3) & ~3),
+            static_cast<UINT>(256)//((m_DecoderParams.textureHeight + 3) & ~3)
+        };
+        
+        D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC inputStreamFormatONNX = inputStreamConvert;
+        inputStreamFormatONNX.Format = m_RGBFormat; // DXGI_FORMAT_R16G16B16A16_FLOAT;
+        inputStreamFormatONNX.ColorSpace = m_RGBColorSpace; // DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+        inputStreamFormatONNX.SourceSizeRange = {
+            static_cast<UINT>(256 * 2),//(m_DecoderParams.textureWidth * 2),
+            static_cast<UINT>(256 * 2),//(m_DecoderParams.textureHeight * 2),
+            static_cast<UINT>(256 * 2),//(m_DecoderParams.textureWidth * 2),
+            static_cast<UINT>(256 * 2)//(m_DecoderParams.textureHeight * 2)
+        };
+        inputStreamFormatONNX.DestinationSizeRange = {
             static_cast<UINT>(m_DecoderParams.textureWidth * 2),
             static_cast<UINT>(m_DecoderParams.textureHeight * 2),
             static_cast<UINT>(m_DecoderParams.textureWidth * 2),
             static_cast<UINT>(m_DecoderParams.textureHeight * 2)
         };
         
-        D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC inputStreamUpscalerConvertP010 = inputStreamConvert;
-        inputStreamUpscalerConvertP010.Format = DXGI_FORMAT_P010;
-        inputStreamUpscalerConvertP010.SourceSizeRange = {
+        D3D12_VIDEO_PROCESS_INPUT_STREAM_DESC inputStreamResizeONNX = inputStreamConvert;
+        inputStreamResizeONNX.Format = m_RGBFormat; // DXGI_FORMAT_R16G16B16A16_FLOAT;
+        inputStreamResizeONNX.ColorSpace = m_RGBColorSpace; // DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+        inputStreamResizeONNX.SourceSizeRange = {
             static_cast<UINT>(m_DecoderParams.textureWidth * 2),
             static_cast<UINT>(m_DecoderParams.textureHeight * 2),
             static_cast<UINT>(m_DecoderParams.textureWidth * 2),
             static_cast<UINT>(m_DecoderParams.textureHeight * 2)
         };
-        inputStreamUpscalerConvertP010.DestinationSizeRange = {
+        inputStreamResizeONNX.DestinationSizeRange = {
             static_cast<UINT>(m_OutputTextureInfo.width),
             static_cast<UINT>(m_OutputTextureInfo.height),
             static_cast<UINT>(m_OutputTextureInfo.width),
@@ -2872,31 +2842,22 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         outputStreamRGB.FrameRate.Denominator = 1;
         outputStreamRGB.EnableStereo = FALSE;
 
-        D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC outputStreamYUV = {};
-        outputStreamYUV.Format = m_Decoder.Format;
-        outputStreamYUV.ColorSpace = m_Decoder.ColorSpace;
-        outputStreamYUV.AlphaFillMode = D3D12_VIDEO_PROCESS_ALPHA_FILL_MODE_OPAQUE;
-        outputStreamYUV.AlphaFillModeSourceStreamIndex = 0;
-        outputStreamYUV.BackgroundColor[0] = 0.0f;
-        outputStreamYUV.BackgroundColor[1] = 0.0f;
-        outputStreamYUV.BackgroundColor[2] = 0.0f;
-        outputStreamYUV.BackgroundColor[3] = 1.0f;
-        outputStreamYUV.FrameRate.Numerator = m_DecoderParams.frameRate;
-        outputStreamYUV.FrameRate.Denominator = 1;
-        outputStreamYUV.EnableStereo = FALSE;
+        D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC outputStreamConvertONNX = outputStreamRGB;
+        outputStreamConvertONNX.Format = m_RGBFormat; // DXGI_FORMAT_R16G16B16A16_FLOAT;
+        outputStreamConvertONNX.ColorSpace = m_RGBColorSpace; // DXGI_COLOR_SPACE_RGB_FULL_G10_NONE_P709;
+        outputStreamConvertONNX.AlphaFillMode = D3D12_VIDEO_PROCESS_ALPHA_FILL_MODE_OPAQUE;
+        outputStreamConvertONNX.AlphaFillModeSourceStreamIndex = 0;
+        outputStreamConvertONNX.BackgroundColor[0] = 0.0f;
+        outputStreamConvertONNX.BackgroundColor[1] = 0.0f;
+        outputStreamConvertONNX.BackgroundColor[2] = 0.0f;
+        outputStreamConvertONNX.BackgroundColor[3] = 1.0f;
+        outputStreamConvertONNX.FrameRate.Numerator = m_DecoderParams.frameRate;
+        outputStreamConvertONNX.FrameRate.Denominator = 1;
+        outputStreamConvertONNX.EnableStereo = FALSE;
         
-        D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC outputStreamP010 = {};
-        outputStreamP010.Format = DXGI_FORMAT_P010;
-        outputStreamP010.ColorSpace = m_Decoder.ColorSpace;
-        outputStreamP010.AlphaFillMode = D3D12_VIDEO_PROCESS_ALPHA_FILL_MODE_OPAQUE;
-        outputStreamP010.AlphaFillModeSourceStreamIndex = 0;
-        outputStreamP010.BackgroundColor[0] = 0.0f;
-        outputStreamP010.BackgroundColor[1] = 0.0f;
-        outputStreamP010.BackgroundColor[2] = 0.0f;
-        outputStreamP010.BackgroundColor[3] = 1.0f;
-        outputStreamP010.FrameRate.Numerator = m_DecoderParams.frameRate;
-        outputStreamP010.FrameRate.Denominator = 1;
-        outputStreamP010.EnableStereo = FALSE;
+        D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC outputStreamFormatONNX = outputStreamRGB;
+        
+        D3D12_VIDEO_PROCESS_OUTPUT_STREAM_DESC outputStreamResizeONNX = outputStreamRGB;
 
         // Check support
         struct KVFormat {
@@ -3056,18 +3017,6 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             if(!verifyHResult(m_hr, "m_VideoDevice->CreateVideoProcessor1(... m_VideoProcessorConvert)")){
                 return false;
             }
-            
-            m_hr = m_VideoDevice->CreateVideoProcessor1(
-                0,
-                &outputStreamP010,
-                1,
-                &inputStreamConvert,
-                nullptr,
-                IID_PPV_ARGS(&m_VideoProcessorConvertP010)
-                );
-            if(!verifyHResult(m_hr, "m_VideoDevice->CreateVideoProcessor1(... m_VideoProcessorConvertP010)")){
-                return false;
-            }
         }
 
         // Upscaler YUV (RenderStep1)
@@ -3102,32 +3051,43 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             }
         }
         
-        // Upscale P010
-        if(m_VideoProcessorUpscalerEnabled){
-            m_hr = m_VideoDevice->CreateVideoProcessor1(
-                0,
-                &outputStreamP010,
-                1,
-                &inputStreamUpscalerP010,
-                nullptr,
-                IID_PPV_ARGS(&m_VideoProcessorUpscalerP010)
-                );
-            if(!verifyHResult(m_hr, "m_VideoDevice->CreateVideoProcessor1(... m_VideoProcessorConvertP010)")){
-                return false;
-            }
-            
-            m_hr = m_VideoDevice->CreateVideoProcessor1(
-                0,
-                &outputStreamRGB,
-                1,
-                &inputStreamUpscalerConvertP010,
-                nullptr,
-                IID_PPV_ARGS(&m_VideoProcessorUpscalerConvertFromP010)
-                );
-            if(!verifyHResult(m_hr, "m_VideoDevice->CreateVideoProcessor1(... m_VideoProcessorUpscalerConvertFromP010)")){
-                return false;
-            }
+        // TODO (bruno) For production, do the Feature support check like other VPs
+        m_hr = m_VideoDevice->CreateVideoProcessor1(
+            0,
+            &outputStreamConvertONNX,
+            1,
+            &inputStreamConvertONNX,
+            nullptr,
+            IID_PPV_ARGS(&m_VideoProcessorConvertONNX)
+            );
+        if(!verifyHResult(m_hr, "m_VideoDevice->CreateVideoProcessor1(... m_VideoProcessorConvertONNX)")){
+            return false;
         }
+        
+        m_hr = m_VideoDevice->CreateVideoProcessor1(
+            0,
+            &outputStreamFormatONNX,
+            1,
+            &inputStreamFormatONNX,
+            nullptr,
+            IID_PPV_ARGS(&m_VideoProcessorFormatONNX)
+            );
+        if(!verifyHResult(m_hr, "m_VideoDevice->CreateVideoProcessor1(... m_VideoProcessorFormatONNX)")){
+            return false;
+        }
+        
+        m_hr = m_VideoDevice->CreateVideoProcessor1(
+            0,
+            &outputStreamResizeONNX,
+            1,
+            &inputStreamResizeONNX,
+            nullptr,
+            IID_PPV_ARGS(&m_VideoProcessorResizeONNX)
+            );
+        if(!verifyHResult(m_hr, "m_VideoDevice->CreateVideoProcessor1(... m_VideoProcessorConvertONNX)")){
+            return false;
+        }
+        
     }
 
     // If VideoProcessor is not available we fallback to Shader
@@ -3213,11 +3173,9 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
     if (m_RenderStep1 == RenderStep::UPSCALE_DML) {
         
         // YUV 720 NV12
-        //  ├─ VP Convert → YUV 720 P010
-        //  ├─ Y → ONNX → Y 1440
-        //  ├─ YUV 720 P010 → VP → YUV 1440 P010 (en parallèle de onnx)
-        //  ├─ Shader Remplace YUV 720 P010 Plane 0 avec Y 1440 issue de ONNX
-        //  └─ VP → RGB10 1080 → Present
+        //  ├─ VP Convert → RGB32
+        //  ├─ RGB32 720 → ONNX(x2) → RGB32 1440
+        //  └─ RGB32 1440 → VP → RGB 1080 → Present
         
         m_hr = DMLCreateDevice1(
             m_Device.Get(),
@@ -3263,10 +3221,8 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             return false;
         }
         
-        
-        
-        D3D12_RESOURCE_DESC inputDesc = m_YTexture->GetDesc();
-        D3D12_RESOURCE_DESC outputDesc = m_YTextureUpscaled->GetDesc();
+        D3D12_RESOURCE_DESC inputDesc = m_ONNXTexture->GetDesc();
+        D3D12_RESOURCE_DESC outputDesc = m_ONNXTextureUpscaled->GetDesc();
         
         auto inputName = m_OrtSession->GetInputNameAllocated(0, m_OrtAllocator);
         auto inputTypeInfo = m_OrtSession->GetInputTypeInfo(0);
@@ -3317,7 +3273,7 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         const uint32_t outputElementSize = outputDataType == ONNX_TENSOR_ELEMENT_DATA_TYPE_FLOAT ? sizeof(float) : sizeof(uint16_t);
         
         Ort::ThrowOnError(m_OrtDmlApi->CreateGPUAllocationFromD3DResource(
-            m_YTexture.Get(),
+            m_ONNXTexture.Get(),
             &m_DmlInputAllocation
             ));
         
@@ -3339,7 +3295,7 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             );
         
         Ort::ThrowOnError(m_OrtDmlApi->CreateGPUAllocationFromD3DResource(
-            m_YTextureUpscaled.Get(),
+            m_ONNXTextureUpscaled.Get(),
             &m_DmlOutputAllocation
             ));
         
@@ -3612,9 +3568,6 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
 
     // Initialize the Shaders
     {
-        D3D12_RESOURCE_DESC descIn = m_YUVTexture.Get()->GetDesc();
-        D3D12_RESOURCE_DESC descOut = m_YTexture.Get()->GetDesc();
-        
         // Render Step 1
         switch (m_RenderStep1) {
         case RenderStep::CONVERT_SHADER:
@@ -3640,46 +3593,6 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
                 return false;
 
             break;
-        case RenderStep::UPSCALE_DML:
-            
-            // Copy Y to R32
-            m_ShaderExtractY.reset();
-            m_ShaderExtractY = std::make_unique<D3D12VideoShaders>(
-                m_Device.Get(),
-                m_GraphicsCommandList.Get(),
-                m_GraphicsCommandQueue.Get(),
-                m_VideoEnhancement,
-                m_YUVTexture.Get(),
-                m_YTexture.Get(),
-                m_DecoderParams.textureWidth,
-                m_DecoderParams.textureHeight,
-                0,
-                0,
-                D3D12VideoShaders::Enhancer::EXTRACT_Y,
-                m_Decoder.ColorSpace
-                );
-            if (!m_ShaderExtractY)
-                return false;
-            
-            // // Copy R32 to Y
-            // // BUG: This made the Device removed (flags issue? probably something else)
-            // m_ShaderInsertY.reset();
-            // m_ShaderInsertY = std::make_unique<D3D12VideoShaders>(
-            //     m_Device.Get(),
-            //     m_GraphicsCommandList.Get(),
-            //     m_GraphicsCommandQueue.Get(),
-            //     m_VideoEnhancement,
-            //     m_YTexture.Get(),
-            //     m_YUVTexture.Get(),
-            //     m_DecoderParams.textureWidth,
-            //     m_DecoderParams.textureHeight,
-            //     0,
-            //     0,
-            //     D3D12VideoShaders::Enhancer::INSERT_Y,
-            //     m_Decoder.ColorSpace
-            //     );
-            // if (!m_ShaderInsertY)
-            //     return false;
             
         default:
             break;
@@ -3765,7 +3678,7 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         ID3D12CommandList* cmdLists[] = { m_GraphicsCommandList.Get() };
         m_GraphicsCommandQueue->ExecuteCommandLists(1, cmdLists);
 
-        waitForGraphics();
+        waitForGraphics(true);
 
         m_GraphicsCommandAllocator->Reset();
         m_GraphicsCommandList->Reset(m_GraphicsCommandAllocator.Get(), nullptr);
@@ -4449,7 +4362,7 @@ RenderStep1:
 
         m_hr = m_VideoProcessCommandList->Close();
         if(!verifyHResult(m_hr, "m_VideoProcessCommandList->Close();")){
-            goto RendererReset;
+            goto Present;
         }
 
         // Submit the command
@@ -4508,7 +4421,7 @@ RenderStep1:
 
         m_hr = m_VideoProcessCommandList->Close();
         if(!verifyHResult(m_hr, "m_VideoProcessCommandList->Close();")){
-            goto RendererReset;
+            goto Present;
         }
 
         // Submit the command
@@ -4540,7 +4453,7 @@ RenderStep1:
         if(m_RenderStep2 != RenderStep::UPSCALE_SHADER){
             m_hr = m_GraphicsCommandList->Close();
             if(!verifyHResult(m_hr, "m_GraphicsCommandList->Close();")){
-                goto RendererReset;
+                goto Present;
             }
             ID3D12CommandList* cmdLists[] = { m_GraphicsCommandList.Get() };
             m_GraphicsCommandQueue->ExecuteCommandLists(1, cmdLists);
@@ -4649,26 +4562,26 @@ RenderStep1:
         }
         resetVideoProcessCommand = true;
         
-        m_InputArgsConvertToP010[m_CurrentFrameIndex].InputStream[0].pTexture2D = frameTexture;
+        m_InputArgsConvertONNX[m_CurrentFrameIndex].InputStream[0].pTexture2D = frameTexture;
         
-        // Convert to P010
+        // Convert to RGB16
         m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
             frameTexture,
             D3D12_RESOURCE_STATE_COMMON,
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ
             );
         m_Barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTexture.Get(),
+            m_ONNXTexture.Get(),
             D3D12_RESOURCE_STATE_COMMON,
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_WRITE
             );
         m_VideoProcessCommandList->ResourceBarrier(2, m_Barriers);
         
         m_VideoProcessCommandList->ProcessFrames1(
-            m_VideoProcessorConvertP010.Get(),
-            &m_OutputArgsConvertToP010[m_CurrentFrameIndex],
+            m_VideoProcessorConvertONNX.Get(),
+            &m_OutputArgsConvertONNX[m_CurrentFrameIndex],
             1,
-            &m_InputArgsConvertToP010[m_CurrentFrameIndex]
+            &m_InputArgsConvertONNX[m_CurrentFrameIndex]
             );
         
         m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
@@ -4677,7 +4590,7 @@ RenderStep1:
             D3D12_RESOURCE_STATE_COMMON
             );
         m_Barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTexture.Get(),
+            m_ONNXTexture.Get(),
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_WRITE,
             D3D12_RESOURCE_STATE_COMMON
             );
@@ -4685,14 +4598,19 @@ RenderStep1:
         
         m_hr = m_VideoProcessCommandList->Close();
         if(!verifyHResult(m_hr, "m_VideoProcessCommandList->Close();")){
-            goto RendererReset;
+            goto Present;
         }
         
         // Submit the command
-        ID3D12CommandList* cmdListsP010[] = { m_VideoProcessCommandList.Get() };
-        m_VideoProcessCommandQueue->ExecuteCommandLists(1, cmdListsP010);
+        ID3D12CommandList* cmdListsConvertONNX[] = { m_VideoProcessCommandList.Get() };
+        m_VideoProcessCommandQueue->ExecuteCommandLists(1, cmdListsConvertONNX);
         
         waitForVideoProcess(true);
+        
+        // DebugExportToPNG(frameTexture, D3D12_RESOURCE_STATE_COMMON, "frameTexture.png");
+        DebugExportToPNG(m_ONNXTexture.Get(), D3D12_RESOURCE_STATE_COMMON, "m_ONNXTexture.png");
+        
+        
         
         if(resetDirectMLCommand){
             m_DirectMLCommandAllocator->Reset();
@@ -4700,8 +4618,72 @@ RenderStep1:
         }
         resetDirectMLCommand = true;
         
-        // DebugExportToPNG(frameTexture, D3D12_RESOURCE_STATE_COMMON, "frameTexture.png");
-        // DebugExportToPNG(m_YUVTexture.Get(), D3D12_RESOURCE_STATE_COMMON, "m_YUVTexture.png");
+        // (bruno) Voir à utiliser "binding" (github de DirectML, le ESRGAN sample)
+        
+        auto inputName = m_OrtSession->GetInputNameAllocated(0, m_OrtAllocator);
+        const char* inputNames[] = { inputName.get() };
+        
+        auto outputName = m_OrtSession->GetOutputNameAllocated(0, m_OrtAllocator);
+        const char* outputNames[] = { outputName.get() };
+        
+        Ort::Value* inputPtr = &m_InputTensor;
+        Ort::Value* outputPtr = &m_OutputTensor;
+        
+        // BUG: For test purpose, I am using https://huggingface.co/AXERA-TECH/Real-ESRGAN/blob/main/onnx/realesrgan-x4-256.onnx
+        // which I store in \third-party\OnnxModels\realesrgan-x4-256.onnx.
+        // This ESRGAN Model accepts DXGI_FORMAT_R8G8B8A8_UNORM as inpt, but is limited to an input szie of 256*256, and output 1024*1024.
+        // It returns the following error:
+        // Device removed! HRESULT: 0x887A0006, Message: The GPU will not respond to more commands,
+        // most likely because of an invalid command passed by the calling application.
+        try {
+            m_OrtSession->Run(
+                Ort::RunOptions{nullptr},
+                inputNames,
+                inputPtr,
+                1,
+                outputNames,
+                outputPtr,
+                1
+                );
+        } catch (const Ort::Exception& e) {
+            qDebug() << "ONNX Runtime error:" << e.what();
+            qDebug() << "Error code:" << e.GetOrtErrorCode();
+            m_DirectMLCommandAllocator->Reset();
+            m_DirectMLCommandList->Reset(m_DirectMLCommandAllocator.Get(), nullptr);
+            HRESULT removedHr = m_Device->GetDeviceRemovedReason();
+            if (removedHr != S_OK) {
+                char errorMsg[256];
+                FormatMessageA(
+                    FORMAT_MESSAGE_FROM_SYSTEM,
+                    nullptr,
+                    removedHr,
+                    MAKELANGID(LANG_NEUTRAL, SUBLANG_DEFAULT),
+                    errorMsg,
+                    sizeof(errorMsg),
+                    nullptr
+                    );
+
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "Device removed! HRESULT: 0x%08X, Message: %s",
+                             removedHr, errorMsg);
+            }
+            goto Present;
+        }
+        
+        m_hr = m_DirectMLCommandList->Close();
+        if(!verifyHResult(m_hr, "m_DirectMLCommandList->Close();")){
+            m_DirectMLCommandAllocator->Reset();
+            m_DirectMLCommandList->Reset(m_DirectMLCommandAllocator.Get(), nullptr);
+            goto Present;
+        }
+        
+        
+        waitForDirectML(true);
+        
+        
+        DebugExportToPNG(m_ONNXTextureUpscaled.Get(), D3D12_RESOURCE_STATE_COMMON, "m_ONNXTextureUpscaled.png");
+        
+        // Convert to RGB8/16
         
         if(resetVideoProcessCommand){
             m_VideoProcessCommandAllocator->Reset();
@@ -4709,35 +4691,34 @@ RenderStep1:
         }
         resetVideoProcessCommand = true;
         
-        m_InputArgsUpscaleP010[m_CurrentFrameIndex].InputStream[0].pTexture2D = m_YUVTexture.Get();
+        m_InputArgsFormatONNX[m_CurrentFrameIndex].InputStream[0].pTexture2D = m_ONNXTextureUpscaled.Get();
         
-        // Upscale P010 (parallel operation)
         m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTexture.Get(),
+            m_ONNXTextureUpscaled.Get(),
             D3D12_RESOURCE_STATE_COMMON,
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ
             );
         m_Barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTextureUpscaledP010.Get(),
+            m_ONNXTextureFormated.Get(),
             D3D12_RESOURCE_STATE_COMMON,
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_WRITE
             );
         m_VideoProcessCommandList->ResourceBarrier(2, m_Barriers);
         
         m_VideoProcessCommandList->ProcessFrames1(
-            m_VideoProcessorUpscalerP010.Get(),
-            &m_OutputArgsUpscaleP010[m_CurrentFrameIndex],
+            m_VideoProcessorFormatONNX.Get(),
+            &m_OutputArgsFormatONNX[m_CurrentFrameIndex],
             1,
-            &m_InputArgsUpscaleP010[m_CurrentFrameIndex]
+            &m_InputArgsFormatONNX[m_CurrentFrameIndex]
             );
         
         m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTexture.Get(),
+            m_ONNXTextureUpscaled.Get(),
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ,
             D3D12_RESOURCE_STATE_COMMON
             );
         m_Barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTextureUpscaledP010.Get(),
+            m_ONNXTextureFormated.Get(),
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_WRITE,
             D3D12_RESOURCE_STATE_COMMON
             );
@@ -4745,211 +4726,17 @@ RenderStep1:
         
         m_hr = m_VideoProcessCommandList->Close();
         if(!verifyHResult(m_hr, "m_VideoProcessCommandList->Close();")){
-            goto RendererReset;
+            goto Present;
         }
         
-        
-        // if(resetDirectMLCommand){
-        //     m_DirectMLCommandAllocator->Reset();
-        //     m_DirectMLCommandList->Reset(m_DirectMLCommandAllocator.Get(), nullptr);
-        // }
-        // resetDirectMLCommand = true;
-        
-        // // (bruno) Voir à utiliser "binding" (github de DirectML, le ESRGAN sample)
-        
-        // auto inputName = m_OrtSession->GetInputNameAllocated(0, m_OrtAllocator);
-        // const char* inputNames[] = { inputName.get() };
-        
-        // auto outputName = m_OrtSession->GetOutputNameAllocated(0, m_OrtAllocator);
-        // const char* outputNames[] = { outputName.get() };
-        
-        // Ort::Value* inputPtr = &m_InputTensor;
-        // Ort::Value* outputPtr = &m_OutputTensor;
-        
-        // try {
-        //     m_OrtSession->Run(
-        //         Ort::RunOptions{nullptr},
-        //         inputNames,
-        //         inputPtr,
-        //         1,
-        //         outputNames,
-        //         outputPtr,
-        //         1
-        //         );
-        // } catch (const Ort::Exception& e) {
-        //     qDebug() << "ONNX Runtime error:" << e.what();
-        //     qDebug() << "Error code:" << e.GetOrtErrorCode();
-        // }
-        
-        // m_hr = m_DirectMLCommandList->Close();
-        // if(!verifyHResult(m_hr, "m_DirectMLCommandList->Close();")){
-        //     m_DirectMLCommandAllocator->Reset();
-        //     m_DirectMLCommandList->Reset(m_DirectMLCommandAllocator.Get(), nullptr);
-        //     return;
-        // }
-        
-        // (todo) Merge Y to YUV via copy plane
-        
-        
         // Submit the command
-        // ID3D12CommandList* cmdListsDML[] = { m_DirectMLCommandList.Get() };
-        // m_DirectMLCommandQueue->ExecuteCommandLists(1, cmdListsDML);
+        ID3D12CommandList* cmdListsFormat[] = { m_VideoProcessCommandList.Get() };
+        m_VideoProcessCommandQueue->ExecuteCommandLists(1, cmdListsFormat);
         
-        // const UINT64 fenceDirectMLValue = ++m_FenceDirectMLValue;
-        // m_hr = m_DirectMLCommandQueue->Signal(m_FenceDirectML.Get(), fenceDirectMLValue);
-        
-        // Submit the command
-        ID3D12CommandList* cmdListsUP[] = { m_VideoProcessCommandList.Get() };
-        m_VideoProcessCommandQueue->ExecuteCommandLists(1, cmdListsUP);
-        
-        // const UINT64 fenceVideoProcessValue = ++m_FenceDirectMLValue;
-        // m_hr = m_VideoProcessCommandQueue->Signal(m_FenceVideoProcess.Get(), fenceVideoProcessValue);
-        
-        // Make sure both operation are done (parallelism)
-        // waitForDirectML();
         waitForVideoProcess(true);
         
-        // DebugExportToPNG(m_YUVTextureUpscaledP010.Get(), D3D12_RESOURCE_STATE_COMMON, "m_YUVTextureUpscaledP010.png");
         
-        // m_GraphicsCommandQueue->Wait(m_FenceDirectML.Get(), m_FenceDirectMLValue);
-        // m_GraphicsCommandQueue->Wait(m_FenceVideoProcess.Get(), fenceVideoProcessValue);
-        
-        TimerInfo("ms (DirectML Upscale YUV)", true);
-        
-        // Graphics
-        if(resetGraphicsCommand){
-            m_GraphicsCommandAllocator->Reset();
-            m_GraphicsCommandList->Reset(m_GraphicsCommandAllocator.Get(), nullptr);
-        }
-        resetGraphicsCommand = true;
-        
-        m_ShaderExtractY->updateShaderResourceView(m_YUVTexture.Get());
-        
-        // Input: m_YUVTexture / Output: m_YTexture
-        m_ShaderExtractY->draw(
-            D3D12_RESOURCE_STATE_COMMON,
-            D3D12_RESOURCE_STATE_COMMON,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-            D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
-            );
-        
-        m_hr = m_GraphicsCommandList->Close();
-        if(!verifyHResult(m_hr, "m_GraphicsCommandList->Close();")){
-            goto RendererReset;
-        }
-        ID3D12CommandList* cmdListsY[] = { m_GraphicsCommandList.Get() };
-        m_GraphicsCommandQueue->ExecuteCommandLists(1, cmdListsY);
-        
-        waitForGraphics(true); //(bruno) peut être déplacé
-        
-        
-        // TEST: This section is only for test that Y can be inserted in YUV, but it should be done on upscqled Y, not the original Y.
-        // I just do it because I don't want this setting to be poluated by ModelML (which I don't know yet if it works on Y)
-        // Current is that I don't know why the initialisation of m_ShaderInsertY makes the device being removed.
-        // I also tried CopyTextureRegion but parameter is wrong, probably do to the format.
-        // Once this works, next teps would be to upscale Y withe ModelML, then insert it into YUV upscaled.
-        
-        // Graphics
-        if(resetGraphicsCommand){
-            m_GraphicsCommandAllocator->Reset();
-            m_GraphicsCommandList->Reset(m_GraphicsCommandAllocator.Get(), nullptr);
-        }
-        resetGraphicsCommand = true;
-        
-        
-        // // TEST 1: Shader InsertY
-        
-        // m_ShaderInsertY->updateShaderResourceView(m_YTexture.Get());
-        
-        // // Input: m_YUVTexture / Output: m_YTexture
-        // m_ShaderInsertY->draw(
-        //     D3D12_RESOURCE_STATE_COMMON,
-        //     D3D12_RESOURCE_STATE_COMMON,
-        //     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE,
-        //     D3D12_RESOURCE_STATE_NON_PIXEL_SHADER_RESOURCE
-        //     );
-        
-        // m_hr = m_GraphicsCommandList->Close();
-        // if(!verifyHResult(m_hr, "m_GraphicsCommandList->Close();")){
-        //     goto RendererReset;
-        // }
-        // ID3D12CommandList* cmdListsYUV[] = { m_GraphicsCommandList.Get() };
-        // m_GraphicsCommandQueue->ExecuteCommandLists(1, cmdListsYUV);
-        
-        // waitForGraphics(true); //(bruno) peut être déplacé
-        
-
-        
-        
-        // // TEST 2: CopyTextureRegion -# Fails at ->Close(), probably due to a compatibilty issue between R32 and P010
-        
-        // m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
-        //     m_YTexture.Get(),
-        //     D3D12_RESOURCE_STATE_COMMON,
-        //     D3D12_RESOURCE_STATE_COPY_SOURCE,
-        //     D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES
-        //     );
-        // m_Barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
-        //     m_YUVTexture.Get(),
-        //     D3D12_RESOURCE_STATE_COMMON,
-        //     D3D12_RESOURCE_STATE_COPY_DEST,
-        //     D3D12_RESOURCE_BARRIER_ALL_SUBRESOURCES
-        //     );
-        // m_GraphicsCommandList->ResourceBarrier(2, m_Barriers);
-        
-        // D3D12_TEXTURE_COPY_LOCATION src = {};
-        // src.pResource = m_YTexture.Get();
-        // src.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        // src.SubresourceIndex = 0;
-        
-        // D3D12_TEXTURE_COPY_LOCATION dst = {};
-        // dst.pResource = m_YUVTexture.Get();
-        // dst.Type = D3D12_TEXTURE_COPY_TYPE_SUBRESOURCE_INDEX;
-        // dst.SubresourceIndex = D3D12CalcSubresource(
-        //     0,          // mip
-        //     0,          // plane Y
-        //     0,          // array slice
-        //     1,          // mipLevels
-        //     2           // plane count (P010) => (Need to test at 1?)
-        // );
-        
-        // m_GraphicsCommandList->CopyTextureRegion(
-        //     &dst,
-        //     0, 0, 0,
-        //     &src,
-        //     nullptr
-        // );
-        
-        // m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
-        //     m_YTexture.Get(),
-        //     D3D12_RESOURCE_STATE_COPY_SOURCE,
-        //     D3D12_RESOURCE_STATE_COMMON
-        //     );
-        // m_Barriers[1] = CD3DX12_RESOURCE_BARRIER::Transition(
-        //     m_YUVTexture.Get(),
-        //     D3D12_RESOURCE_STATE_COPY_DEST,
-        //     D3D12_RESOURCE_STATE_COMMON
-        //     );
-        // m_GraphicsCommandList->ResourceBarrier(2, m_Barriers);
-        
-        // m_hr = m_GraphicsCommandList->Close();
-        // if(!verifyHResult(m_hr, "m_GraphicsCommandList->Close2();")){
-        //     goto RendererReset;
-        // }
-        // ID3D12CommandList* cmdListsYUV[] = { m_GraphicsCommandList.Get() };
-        // m_GraphicsCommandQueue->ExecuteCommandLists(1, cmdListsYUV);
-        
-        // waitForGraphics(true);
-        
-        // m_GraphicsCommandAllocator->Reset();
-        // m_GraphicsCommandList->Reset(m_GraphicsCommandAllocator.Get(), nullptr);
-        
-        
-        
-        // TimerInfo("ms (Insert Y)", true);
-        
-        // DebugExportToPNG(m_YUVTexture.Get(), D3D12_RESOURCE_STATE_COMMON, "m_YUVTexture.png");
-        
+        // Up/Down scale to the display resolution
         
         if(resetVideoProcessCommand){
             m_VideoProcessCommandAllocator->Reset();
@@ -4957,11 +4744,10 @@ RenderStep1:
         }
         resetVideoProcessCommand = true;
         
-        m_InputArgsUpscalerConvertFromP010[m_CurrentFrameIndex].InputStream[0].pTexture2D = m_YUVTextureUpscaledP010.Get();
+        m_InputArgsResizeONNX[m_CurrentFrameIndex].InputStream[0].pTexture2D = m_ONNXTextureFormated.Get();
         
-        // Upscale P010 (parallel operation)
         m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTextureUpscaledP010.Get(),
+            m_ONNXTextureFormated.Get(),
             D3D12_RESOURCE_STATE_COMMON,
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ
             );
@@ -4973,14 +4759,14 @@ RenderStep1:
         m_VideoProcessCommandList->ResourceBarrier(2, m_Barriers);
         
         m_VideoProcessCommandList->ProcessFrames1(
-            m_VideoProcessorUpscalerConvertFromP010.Get(),
-            &m_OutputArgsUpscalerConvertFromP010[m_CurrentFrameIndex],
+            m_VideoProcessorResizeONNX.Get(),
+            &m_OutputArgsResizeONNX[m_CurrentFrameIndex],
             1,
-            &m_InputArgsUpscalerConvertFromP010[m_CurrentFrameIndex]
+            &m_InputArgsResizeONNX[m_CurrentFrameIndex]
             );
         
         m_Barriers[0] = CD3DX12_RESOURCE_BARRIER::Transition(
-            m_YUVTextureUpscaledP010.Get(),
+            m_ONNXTextureFormated.Get(),
             D3D12_RESOURCE_STATE_VIDEO_PROCESS_READ,
             D3D12_RESOURCE_STATE_COMMON
             );
@@ -4993,14 +4779,14 @@ RenderStep1:
         
         m_hr = m_VideoProcessCommandList->Close();
         if(!verifyHResult(m_hr, "m_VideoProcessCommandList->Close();")){
-            goto RendererReset;
+            goto Present;
         }
         
         // Submit the command
-        ID3D12CommandList* cmdListsRGB[] = { m_VideoProcessCommandList.Get() };
-        m_VideoProcessCommandQueue->ExecuteCommandLists(1, cmdListsRGB);
+        ID3D12CommandList* cmdListsResize[] = { m_VideoProcessCommandList.Get() };
+        m_VideoProcessCommandQueue->ExecuteCommandLists(1, cmdListsResize);
         
-        waitForVideoProcess();
+        waitForVideoProcess(true);
         
         
         goto Draw;
@@ -5106,7 +4892,7 @@ RenderStep2:
         
         // Evaluate VSR
         NVSDK_NGX_Result ResultVSR = NGX_D3D12_EVALUATE_VSR_EXT(m_GraphicsCommandList.Get(), m_VSRFeature, m_VSRngxParameters, &vsrEvalParams);
-        if (NVSDK_NGX_FAILED(ResultVSR)) goto RendererReset;
+        if (NVSDK_NGX_FAILED(ResultVSR)) goto Present;
         
         if(m_VendorHDRenabled){
             // Setup TrueHDR params
@@ -5128,7 +4914,7 @@ RenderStep2:
             
             // Evaluate TrueHDR
             NVSDK_NGX_Result ResultTrueHDR = NGX_D3D12_EVALUATE_TRUEHDR_EXT(m_GraphicsCommandList.Get(), m_TrueHDRFeature, m_TrueHDRngxParameters, &trueHDREvalParams);
-            if (NVSDK_NGX_FAILED(ResultTrueHDR)) goto RendererReset;
+            if (NVSDK_NGX_FAILED(ResultTrueHDR)) goto Present;
         }
         
         TimerInfo("ms (VSR Upscale RGB)", true);
@@ -5323,7 +5109,7 @@ Draw:
             if (overlaySkip) {
                 m_OverlaySkip = false;
             }
-            goto RendererReset;
+            goto Present;
         }
         ID3D12CommandList* cmdLists[] = { m_GraphicsCommandList.Get() };
         m_GraphicsCommandQueue->ExecuteCommandLists(1, cmdLists);

@@ -101,7 +101,5 @@
         <file alias="FSR_Pass.hlsl">shaders/enhancer/AMD/FSR_Pass.hlsl</file>
         <file alias="ffx_a.h">shaders/enhancer/AMD/ffx_a.h</file>
         <file alias="ffx_fsr1.h">shaders/enhancer/AMD/ffx_fsr1.h</file>
-        <file alias="extract_y_cs.hlsl">shaders/enhancer/extract_y_cs.hlsl</file>
-        <file alias="insert_y_cs.hlsl">shaders/enhancer/insert_y_cs.hlsl</file>
     </qresource>
 </RCC>

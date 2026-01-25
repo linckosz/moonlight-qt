@@ -182,15 +182,12 @@ private:
     int m_DisplayHeight;
     TextureInfo m_OutputTextureInfo;
     ComPtr<ID3D12Resource> m_FrameTexture;
-    ComPtr<ID3D12Resource> m_YUVTexture;
     ComPtr<ID3D12Resource> m_YUVTextureUpscaled;
-    ComPtr<ID3D12Resource> m_YUVTextureUpscaledP010;
-    ComPtr<ID3D12Resource> m_YTexture;
-    ComPtr<ID3D12Resource> m_YTextureUpscaled;
     ComPtr<ID3D12Resource> m_RGBTexture;
-    ComPtr<ID3D12Resource> m_RGBTextureFloat;
     ComPtr<ID3D12Resource> m_RGBTextureUpscaled;
-    ComPtr<ID3D12Resource> m_RGBTextureUpscaledFloat;
+    ComPtr<ID3D12Resource> m_ONNXTexture;
+    ComPtr<ID3D12Resource> m_ONNXTextureUpscaled;
+    ComPtr<ID3D12Resource> m_ONNXTextureFormated;
     ComPtr<ID3D12Resource> m_OutputTexture;
     ComPtr<ID3D12Resource> m_OutputTexturePrevious;
     DXGI_FORMAT m_RGBFormat;
@@ -234,23 +231,23 @@ private:
     INT32 m_EdgeEnhancementValue = 0;
     bool m_VideoProcessorAutoProcessing = false;
     ComPtr<ID3D12VideoProcessor1> m_VideoProcessorConvert;
-    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorConvertP010;
     ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscaler;
-    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscalerP010;
     ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscalerConvert;
-    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorUpscalerConvertFromP010;
+    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorConvertONNX;
+    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorFormatONNX;
+    ComPtr<ID3D12VideoProcessor1> m_VideoProcessorResizeONNX;
     std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsConvert;
     std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsConvert;
     std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscaler;
     std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscaler;
     std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscalerConvert;
     std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscalerConvert;
-    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsConvertToP010;
-    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsConvertToP010;
-    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscaleP010;
-    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscaleP010;
-    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsUpscalerConvertFromP010;
-    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsUpscalerConvertFromP010;
+    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsConvertONNX;
+    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsConvertONNX;
+    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsFormatONNX;
+    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsFormatONNX;
+    std::vector<D3D12_VIDEO_PROCESS_INPUT_STREAM_ARGUMENTS1> m_InputArgsResizeONNX;
+    std::vector<D3D12_VIDEO_PROCESS_OUTPUT_STREAM_ARGUMENTS> m_OutputArgsResizeONNX;
     
     ComPtr<ID3D12CommandAllocator> m_VideoProcessCommandAllocator;
     ComPtr<ID3D12VideoProcessCommandList3> m_VideoProcessCommandList;
@@ -323,8 +320,6 @@ private:
     std::unique_ptr<D3D12VideoShaders> m_ShaderConverter = nullptr;
     std::unique_ptr<D3D12VideoShaders> m_ShaderUpscaler = nullptr;
     std::unique_ptr<D3D12VideoShaders> m_ShaderSharpener = nullptr;
-    std::unique_ptr<D3D12VideoShaders> m_ShaderExtractY = nullptr;
-    std::unique_ptr<D3D12VideoShaders> m_ShaderInsertY = nullptr;
 
     // AMD AMF
     AMFContext2Ptr m_AmfContext;
