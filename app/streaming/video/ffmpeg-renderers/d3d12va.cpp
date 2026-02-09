@@ -502,7 +502,10 @@ void D3D12VARenderer::enhanceAutoSelection()
             m_InfoSharpener = "NIS Sharpener";
             m_InfoAlgo = "Shader NIS";
         } else {
-            // NOTE: Current version is too slow (20ms per frame)
+
+            // IntelVPL is only available for the architecture x64, we fallback to FSR1 only for ARM.
+#if defined(HAVE_INTEL_VPL)
+            // // NOTE: Current version is too slow (20ms per frame)
             // m_VendorVSRenabled = true;
             // m_VendorHDRenabled = false;
             // m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
@@ -520,6 +523,16 @@ void D3D12VARenderer::enhanceAutoSelection()
             m_InfoUpscaler = "FSR1 EASU";
             m_InfoSharpener = "FRS1 RCAS";
             m_InfoAlgo = "Shader FSR1";
+#else
+            m_VendorVSRenabled = false;
+            m_VendorHDRenabled = false;
+            m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
+            m_RenderStep1 = RenderStep::CONVERT_SHADER;
+            m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+            m_InfoUpscaler = "FSR1 EASU";
+            m_InfoSharpener = "FRS1 RCAS";
+            m_InfoAlgo = "Shader FSR1";
+#endif
         }
     }
 
@@ -1079,6 +1092,10 @@ void D3D12VARenderer::setAMDHdr()
  */
 bool D3D12VARenderer::enableIntelVideoSuperResolution(bool activate, bool logInfo)
 {
+    // IntelVPL is only available for the architecture x64
+#if !defined(HAVE_INTEL_VPL)
+    m_VendorVSRenabled = false;
+#endif
     if (!m_VendorVSRenabled) {
         activate = false;
         if (logInfo) SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "Intel Video Super Resolution disabled");

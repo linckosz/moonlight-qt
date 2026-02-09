@@ -457,25 +457,112 @@ win32:!winrt | unix:!macx {
 
 win32:!winrt {
     message(Intel VPL Upscaling technologies)
-        
-    vpl_build.commands = \
-        cd $$shell_path($$PWD/../third-party/libvpl) && \
-        script\\bootstrap.bat && \
-        cmake -B _build -DCMAKE_INSTALL_PREFIX=_vplinstall && \
-        cmake --build _build --config Release && \
-        cmake --install _build --config Release
     
-    vpl_build.CONFIG += no_link
-    QMAKE_EXTRA_TARGETS += vpl_build
-    PRE_TARGETDEPS += vpl_build    
+    # IntelVPL already exists and is compiled for x64 architecture.
+    # Uncomment if you need to rebuild IntelVPL.
+    # Important: MSVC Build Tools for ARM64 and WinGet (https://github.com/microsoft/winget-cli/releases) are required,
+
+    # # Compile x64 architecture
+    # vpl_build_x64.commands = \
+    #     cd $$shell_path($$PWD/../third-party/libvpl) && \
+    #     script\\bootstrap.bat && \
+    #     cmake -B _build_x64 -DCMAKE_INSTALL_PREFIX="_vplinstall_x64" && \
+    #     cmake --build _build_x64 --config Release && \
+    #     cmake --install _build_x64 --config Release
+    # vpl_build_x64.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += vpl_build_x64
+    # PRE_TARGETDEPS += vpl_build_x64
     
-    INCLUDEPATH += \
-        $$PWD/../third-party/libvpl/_vplinstall/lib \
-        $$PWD/../third-party/libvpl/api \
-        $$PWD/../third-party/IntelVPL \
-        $$PWD/../third-party/IntelVPL/Debug
-        
-    LIBS += -L$$PWD/../third-party/libvpl/_vplinstall/lib -lvpl
+    # VPL_LIB_SRC_X64 = "$$PWD/../third-party/libvpl/_vplinstall_x64/lib"
+    # VPL_LIB_DST_X64 = "$$PWD/../third-party/IntelVPL/x64/lib"
+    # copy_vpl_lib_x64_mkdir.commands = mkdir $$quote($$shell_path($$VPL_LIB_DST_X64))
+    # copy_vpl_lib_x64_mkdir.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_lib_x64_mkdir
+    # PRE_TARGETDEPS += copy_vpl_lib_x64_mkdir
+
+    # copy_vpl_lib_x64.commands = $$quote( \
+    #     $$QMAKE_COPY_DIR \
+    #     $$shell_path($$VPL_LIB_SRC_X64) \
+    #     $$shell_path($$VPL_LIB_DST_X64) \
+    # )
+    # copy_vpl_lib_x64.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_lib_x64
+    # PRE_TARGETDEPS += copy_vpl_lib_x64
+    
+    # VPL_INC_SRC_X64 = "$$PWD/../third-party/libvpl/_vplinstall_x64/include"
+    # VPL_INC_DST_X64 = "$$PWD/../third-party/IntelVPL/x64/include"
+    # copy_vpl_inc_x64_mkdir.commands = mkdir $$quote($$shell_path($$VPL_INC_DST_X64))
+    # copy_vpl_inc_x64_mkdir.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_inc_x64_mkdir
+    # PRE_TARGETDEPS += copy_vpl_inc_x64_mkdir
+    
+    # copy_vpl_inc_x64.commands = $$quote( \
+    #     $$QMAKE_COPY_DIR \
+    #     $$shell_path($$VPL_INC_SRC_X64) \
+    #     $$shell_path($$VPL_INC_DST_X64) \
+    # )
+    # copy_vpl_inc_x64.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_inc_x64
+    # PRE_TARGETDEPS += copy_vpl_inc_x64
+    
+    # # Compile arm64 architecture
+    # # Note: Intel does not provide a arm64 version of its library,
+    # # but we need to compile it to avoid a build error, even if it is not used
+    # vpl_build_arm64.commands = \
+    #     cd $$shell_path($$PWD/../third-party/libvpl) && \
+    #     script\\bootstrap.bat && \
+    #     cmake -B _build_arm64 -A ARM64 -T host=x64 -DCMAKE_INSTALL_PREFIX="_vplinstall_arm64" && \
+    #     cmake --build _build_arm64 --config Release && \
+    #     cmake --install _build_arm64 --config Release
+    # vpl_build_arm64.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += vpl_build_arm64
+    # PRE_TARGETDEPS += vpl_build_arm64
+    
+    # VPL_LIB_SRC_ARM64 = "$$PWD/../third-party/libvpl/_vplinstall_arm64/lib"
+    # VPL_LIB_DST_ARM64 = "$$PWD/../third-party/IntelVPL/arm64/lib"
+    # copy_vpl_lib_arm64_mkdir.commands = mkdir $$quote($$shell_path($$VPL_LIB_DST_ARM64))
+    # copy_vpl_lib_arm64_mkdir.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_lib_arm64_mkdir
+    # PRE_TARGETDEPS += copy_vpl_lib_arm64_mkdir
+    
+    # copy_vpl_lib_arm64.commands = $$quote( \
+    #     $$QMAKE_COPY_DIR \
+    #     $$shell_path($$VPL_LIB_SRC_ARM64) \
+    #     $$shell_path($$VPL_LIB_DST_ARM64) \
+    # )
+    # copy_vpl_lib_arm64.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_lib_arm64
+    # PRE_TARGETDEPS += copy_vpl_lib_arm64
+    
+    # VPL_INC_SRC_ARM64 = "$$PWD/../third-party/libvpl/_vplinstall_arm64/include"
+    # VPL_INC_DST_ARM64 = "$$PWD/../third-party/IntelVPL/arm64/include"
+    # copy_vpl_inc_arm64_mkdir.commands = mkdir $$quote($$shell_path($$VPL_INC_DST_ARM64))
+    # copy_vpl_inc_arm64_mkdir.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_inc_arm64_mkdir
+    # PRE_TARGETDEPS += copy_vpl_inc_arm64_mkdir
+    
+    # copy_vpl_inc_arm64.commands = $$quote( \
+    #     $$QMAKE_COPY_DIR \
+    #     $$shell_path($$VPL_INC_SRC_ARM64) \
+    #     $$shell_path($$VPL_INC_DST_ARM64) \
+    # )
+    # copy_vpl_inc_arm64.CONFIG += no_link
+    # QMAKE_EXTRA_TARGETS += copy_vpl_inc_arm64
+    # PRE_TARGETDEPS += copy_vpl_inc_arm64
+    
+    
+    OS_ARCHI = x64
+    contains(QT_ARCH, arm64) {
+        OS_ARCHI = arm64
+    }
+    
+    INCLUDEPATH += $$PWD/../third-party/IntelVPL/$${OS_ARCHI}/include
+    LIBS += -L$$PWD/../third-party/IntelVPL/$${OS_ARCHI}/lib -lvpl
+    
+    # IntelVPL is only available for the architecture x64
+    contains(QT_ARCH, x86_64) {
+        DEFINES += HAVE_INTEL_VPL
+    }
 }
 
 win32:!winrt {

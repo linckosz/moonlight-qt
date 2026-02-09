@@ -7,7 +7,7 @@ build/
 config.tests/*/.qmake.stash
 config.tests/*/Makefile
 
-third-party/*
+third-party/**
 !third-party/
 
 # Submodules
@@ -15,11 +15,16 @@ third-party/*
 !third-party/DirectX-Headers/
 !third-party/FidelityFX-FSR/
 !third-party/NVIDIAImageScaling/
+!third-party/libvpl/
 
 # Bundled SDKs
-!third-party/RTX_Video_SDK/
-!third-party/RTX_Video_SDK/**
-!third-party/stb_image/
-!third-party/stb_image/**
 !third-party/DirectXShaderCompiler/
 !third-party/DirectXShaderCompiler/**
+!third-party/RTX_Video_SDK/
+!third-party/RTX_Video_SDK/**
+!third-party/IntelVPL/
+!third-party/IntelVPL/**/
+!third-party/IntelVPL/**/lib/**
+!third-party/IntelVPL/**/include/**
+!third-party/stb_image/
+!third-party/stb_image/**
