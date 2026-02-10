@@ -381,27 +381,6 @@ config_SL {
 win32 {
     HEADERS += streaming/video/ffmpeg-renderers/dxutil.h
 }
-win32:!winrt {
-    message("DXVA2, D3D11renderers and D3D12renderers selected")
-
-    SOURCES += \
-        streaming/video/ffmpeg-renderers/dxva2.cpp \
-        streaming/video/ffmpeg-renderers/d3d11va.cpp \
-        streaming/video/ffmpeg-renderers/d3d12va.cpp \
-        streaming/video/ffmpeg-renderers/d3d12va_shaders.cpp \
-        streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.cpp
-
-    HEADERS += \
-        streaming/video/ffmpeg-renderers/dxva2.h \
-        streaming/video/ffmpeg-renderers/d3d11va.h \
-        streaming/video/ffmpeg-renderers/d3d12va.h \
-        streaming/video/ffmpeg-renderers/d3d12va_shaders.h \
-        streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.h
-        
-    CONFIG(debug, debug|release) {
-        INCLUDEPATH += $$PWD/../third-party/stb_image
-    }
-}
 
 win32:!winrt {
     message(NVIDIA VSR and TrueHDR technologies)
@@ -462,16 +441,16 @@ win32:!winrt {
     # Uncomment if you need to rebuild IntelVPL.
     # Important: MSVC Build Tools for ARM64 and WinGet (https://github.com/microsoft/winget-cli/releases) are required,
 
-    # # Compile x64 architecture
-    # vpl_build_x64.commands = \
-    #     cd $$shell_path($$PWD/../third-party/libvpl) && \
-    #     script\\bootstrap.bat && \
-    #     cmake -B _build_x64 -DCMAKE_INSTALL_PREFIX="_vplinstall_x64" && \
-    #     cmake --build _build_x64 --config Release && \
-    #     cmake --install _build_x64 --config Release
-    # vpl_build_x64.CONFIG += no_link
-    # QMAKE_EXTRA_TARGETS += vpl_build_x64
-    # PRE_TARGETDEPS += vpl_build_x64
+    # Compile x64 architecture
+    vpl_build_x64.commands = \
+        cd $$shell_path($$PWD/../third-party/libvpl) && \
+        script\\bootstrap.bat && \
+        cmake -B _build_x64 -DCMAKE_INSTALL_PREFIX="$$PWD/../third-party/IntelVPL/x64" && \
+        cmake --build _build_x64 --config Release && \
+        cmake --install _build_x64 --config Release
+    vpl_build_x64.CONFIG += no_link
+    QMAKE_EXTRA_TARGETS += vpl_build_x64
+    PRE_TARGETDEPS += vpl_build_x64
     
     # VPL_LIB_SRC_X64 = "$$PWD/../third-party/libvpl/_vplinstall_x64/lib"
     # VPL_LIB_DST_X64 = "$$PWD/../third-party/IntelVPL/x64/lib"
@@ -505,18 +484,18 @@ win32:!winrt {
     # QMAKE_EXTRA_TARGETS += copy_vpl_inc_x64
     # PRE_TARGETDEPS += copy_vpl_inc_x64
     
-    # # Compile arm64 architecture
-    # # Note: Intel does not provide a arm64 version of its library,
-    # # but we need to compile it to avoid a build error, even if it is not used
-    # vpl_build_arm64.commands = \
-    #     cd $$shell_path($$PWD/../third-party/libvpl) && \
-    #     script\\bootstrap.bat && \
-    #     cmake -B _build_arm64 -A ARM64 -T host=x64 -DCMAKE_INSTALL_PREFIX="_vplinstall_arm64" && \
-    #     cmake --build _build_arm64 --config Release && \
-    #     cmake --install _build_arm64 --config Release
-    # vpl_build_arm64.CONFIG += no_link
-    # QMAKE_EXTRA_TARGETS += vpl_build_arm64
-    # PRE_TARGETDEPS += vpl_build_arm64
+    # Compile arm64 architecture
+    # Note: Intel does not provide a arm64 version of its library,
+    # but we need to compile it to avoid a build error, even if it is not used
+    vpl_build_arm64.commands = \
+        cd $$shell_path($$PWD/../third-party/libvpl) && \
+        script\\bootstrap.bat && \
+        cmake -B _build_arm64 -A ARM64 -T host=x64 -DCMAKE_INSTALL_PREFIX="$$PWD/../third-party/IntelVPL/arm64" && \
+        cmake --build _build_arm64 --config Release && \
+        cmake --install _build_arm64 --config Release
+    vpl_build_arm64.CONFIG += no_link
+    QMAKE_EXTRA_TARGETS += vpl_build_arm64
+    PRE_TARGETDEPS += vpl_build_arm64
     
     # VPL_LIB_SRC_ARM64 = "$$PWD/../third-party/libvpl/_vplinstall_arm64/lib"
     # VPL_LIB_DST_ARM64 = "$$PWD/../third-party/IntelVPL/arm64/lib"
@@ -582,6 +561,27 @@ win32:!winrt {
     message(Direct3D 12 headers)
 
     INCLUDEPATH += $$PWD/../third-party/DirectX-Headers/include
+}
+win32:!winrt {
+    message("DXVA2, D3D11renderers and D3D12renderers selected")
+
+    SOURCES += \
+        streaming/video/ffmpeg-renderers/dxva2.cpp \
+        streaming/video/ffmpeg-renderers/d3d11va.cpp \
+        streaming/video/ffmpeg-renderers/d3d12va.cpp \
+        streaming/video/ffmpeg-renderers/d3d12va_shaders.cpp \
+        streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.cpp
+
+    HEADERS += \
+        streaming/video/ffmpeg-renderers/dxva2.h \
+        streaming/video/ffmpeg-renderers/d3d11va.h \
+        streaming/video/ffmpeg-renderers/d3d12va.h \
+        streaming/video/ffmpeg-renderers/d3d12va_shaders.h \
+        streaming/video/ffmpeg-renderers/pacer/dxvsyncsource.h
+        
+    CONFIG(debug, debug|release) {
+        INCLUDEPATH += $$PWD/../third-party/stb_image
+    }
 }
 macx {
     message(VideoToolbox renderer selected)
