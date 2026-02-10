@@ -23,7 +23,7 @@ third-party/**
 !third-party/RTX_Video_SDK/
 !third-party/RTX_Video_SDK/**
 !third-party/IntelVPL/
-!third-party/IntelVPL/*/
+!third-party/IntelVPL/**/
 !third-party/IntelVPL/*/lib/**
 !third-party/IntelVPL/*/include/**
 !third-party/stb_image/
