@@ -168,7 +168,7 @@ bool VideoEnhancement::isVideoEnhancementEnabled(){
  * \return bool Returns true if the Video Enhancement feature is available
  */
 bool VideoEnhancement::enableVideoEnhancement(bool activate){
-    m_Enabled = (m_VSRcapable || m_HDRcapable) && activate;
+    m_Enabled = m_VSRcapable || m_HDRcapable || activate;
     return m_Enabled;
 }
 

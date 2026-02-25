@@ -10,6 +10,12 @@
 #include <libplacebo/renderer.h>
 #include <libplacebo/vulkan.h>
 
+#ifdef HAVE_FFX
+    #include "streaming/video/videoenhancement.h"
+    #include <FidelityFX/host/ffx_fsr1.h>
+    #include <FidelityFX/host/backends/vk/ffx_vk.h>
+#endif
+
 class PlVkRenderer : public IFFmpegRenderer {
 public:
     PlVkRenderer(bool hwaccel = false, IFFmpegRenderer *backendRenderer = nullptr);
@@ -100,4 +106,39 @@ private:
     PFN_vkGetPhysicalDeviceProperties fn_vkGetPhysicalDeviceProperties = nullptr;
     PFN_vkGetPhysicalDeviceSurfaceSupportKHR fn_vkGetPhysicalDeviceSurfaceSupportKHR = nullptr;
     PFN_vkEnumerateDeviceExtensionProperties fn_vkEnumerateDeviceExtensionProperties = nullptr;
+    
+#ifdef HAVE_FFX
+    // FidelityFX FSR1 Upscaling
+    VideoEnhancement* m_VideoEnhancement;
+    DECODER_PARAMETERS m_DecoderParams;
+    bool m_IsTexture10bits = false;
+    pl_tex m_IntermediateTextures[2] = { nullptr, nullptr };
+    int m_IntermediateTextureIndex = 0;
+    pl_tex m_IntermediateTexture = nullptr;
+    VkSemaphore m_SemHold = VK_NULL_HANDLE;
+    VkSemaphore m_SemRelease = VK_NULL_HANDLE;
+    pl_tex m_FSR1OutputTexture = nullptr;
+    VkQueue m_ComputeQueue = VK_NULL_HANDLE;
+    VkCommandPool m_FSR1CommandPool = VK_NULL_HANDLE;
+    VkCommandBuffer m_FSR1CommandBuffer = VK_NULL_HANDLE;
+    int m_DisplayWidth;
+    int m_DisplayHeight;
+    FfxFsr1Context m_FSR1Context;
+    FfxResourceDescription m_FfxResourceDesc;
+    bool m_FSR1ContextCreated = false;
+    void* m_ScratchBuffer = nullptr;
+    FfxResourceDescription m_OutputDesc;
+    FfxFsr1DispatchDescription m_DispatchParams;
+    
+    // Vulkan device-level functions we call directly
+    PFN_vkGetDeviceQueue           m_vkGetDeviceQueue = nullptr;
+    PFN_vkCreateCommandPool        m_vkCreateCommandPool = nullptr;
+    PFN_vkAllocateCommandBuffers   m_vkAllocateCommandBuffers = nullptr;
+    PFN_vkResetCommandBuffer       m_vkResetCommandBuffer = nullptr;
+    PFN_vkBeginCommandBuffer       m_vkBeginCommandBuffer = nullptr;
+    PFN_vkEndCommandBuffer         m_vkEndCommandBuffer = nullptr;
+    PFN_vkQueueSubmit              m_vkQueueSubmit = nullptr;
+    PFN_vkQueueWaitIdle            m_vkQueueWaitIdle = nullptr;
+    PFN_vkDestroyCommandPool       m_vkDestroyCommandPool = nullptr;
+#endif
 };

@@ -53,6 +53,43 @@ static const char *k_OptionalDeviceExtensions[] = {
 #endif
 };
 
+#ifdef HAVE_FFX
+static PFN_vkGetDeviceProcAddr s_OriginalGetDeviceProcAddr = nullptr;
+static uint32_t s_VulkanMinorVersion = 0;
+static PFN_vkVoidFunction ffxVkGetDeviceProcAddrWrapper(VkDevice device, const char* pName)
+{
+    if (s_VulkanMinorVersion >= 1) {
+        struct { const char* khr; const char* core; } redirects[] = {
+                         { "vkGetBufferMemoryRequirements2KHR",  "vkGetBufferMemoryRequirements2"  },
+                         { "vkGetImageMemoryRequirements2KHR",   "vkGetImageMemoryRequirements2"   },
+                         { "vkBindBufferMemory2KHR",             "vkBindBufferMemory2"             },
+                         { "vkBindImageMemory2KHR",              "vkBindImageMemory2"              },
+                         { "vkGetDescriptorSetLayoutSupportKHR", "vkGetDescriptorSetLayoutSupport" },
+                         { "vkCreateSamplerYcbcrConversionKHR",  "vkCreateSamplerYcbcrConversion"  },
+                         { "vkDestroySamplerYcbcrConversionKHR", "vkDestroySamplerYcbcrConversion" },
+                         { "vkTrimCommandPoolKHR",               "vkTrimCommandPool"               },
+                         };
+        
+        for (const auto& r : redirects) {
+            if (strcmp(pName, r.khr) == 0) {
+                pName = r.core;
+                break;
+            }
+        }
+    }
+    
+    return s_OriginalGetDeviceProcAddr(device, pName);
+}
+
+#define POPULATE_DEVICE_FUNCTION(name) \
+m_vk##name = (PFN_vk##name)s_OriginalGetDeviceProcAddr(m_Vulkan->device, "vk" #name); \
+    if (m_vk##name == nullptr) { \
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, \
+                     "Missing required Vulkan device function: vk" #name); \
+        return false; \
+}
+#endif
+
 static void pl_log_cb(void*, enum pl_log_level level, const char *msg)
 {
     switch (level) {
@@ -134,7 +171,40 @@ PlVkRenderer::~PlVkRenderer()
             pl_tex_destroy(m_Vulkan->gpu, &m_Textures[i]);
         }
     }
-
+    
+#ifdef HAVE_FFX
+    for (auto& item : m_IntermediateTextures) {
+        pl_tex_destroy(m_Vulkan->gpu, &item);
+        item = nullptr;
+    }
+    
+    if (m_IntermediateTexture) {
+        pl_tex_destroy(m_Vulkan->gpu, &m_IntermediateTexture);
+        m_IntermediateTexture = nullptr;
+    }
+    
+    if (m_FSR1OutputTexture) {
+        pl_tex_destroy(m_Vulkan->gpu, &m_FSR1OutputTexture);
+        m_FSR1OutputTexture = nullptr;
+    }
+    
+    if (m_SemHold != VK_NULL_HANDLE) {
+        pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemHold);
+        m_SemHold = VK_NULL_HANDLE;
+    }
+    
+    if (m_SemRelease != VK_NULL_HANDLE) {
+        pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemRelease);
+        m_SemRelease = VK_NULL_HANDLE;
+    }
+    
+    if (m_FSR1CommandPool != VK_NULL_HANDLE) {
+        m_vkDestroyCommandPool(m_Vulkan->device, m_FSR1CommandPool, nullptr);
+        m_FSR1CommandPool   = VK_NULL_HANDLE;
+        m_FSR1CommandBuffer = VK_NULL_HANDLE;
+    }
+#endif
+    
     pl_renderer_destroy(&m_Renderer);
     pl_swapchain_destroy(&m_Swapchain);
     pl_vulkan_destroy(&m_Vulkan);
@@ -520,6 +590,199 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
                          err);
             return false;
         }
+        
+#ifdef HAVE_FFX
+        // FidelityFX
+        // https://gpuopen.com/manuals/fidelityfx_sdk/techniques/super-resolution-spatial/
+        if (params->enableVideoEnhancement) {
+            
+            m_DecoderParams = *params;
+            
+            // Check if HDR is enabled by the user in the UI settings.
+            m_IsTexture10bits = params->videoFormat & VIDEO_FORMAT_MASK_10BIT;
+            
+            PFN_vkGetInstanceProcAddr vkGetInstanceProcAddrFn =
+                (PFN_vkGetInstanceProcAddr)m_PlVkInstance->get_proc_addr(
+                    m_PlVkInstance->instance,
+                    "vkGetInstanceProcAddr"
+                    );
+            
+            s_OriginalGetDeviceProcAddr =
+                (PFN_vkGetDeviceProcAddr)vkGetInstanceProcAddrFn(
+                    m_PlVkInstance->instance,
+                    "vkGetDeviceProcAddr"
+                    );
+            
+            POPULATE_DEVICE_FUNCTION(GetDeviceQueue)
+            POPULATE_DEVICE_FUNCTION(CreateCommandPool)
+            POPULATE_DEVICE_FUNCTION(AllocateCommandBuffers)
+            POPULATE_DEVICE_FUNCTION(ResetCommandBuffer)
+            POPULATE_DEVICE_FUNCTION(BeginCommandBuffer)
+            POPULATE_DEVICE_FUNCTION(EndCommandBuffer)
+            POPULATE_DEVICE_FUNCTION(QueueSubmit)
+            POPULATE_DEVICE_FUNCTION(QueueWaitIdle)
+            POPULATE_DEVICE_FUNCTION(DestroyCommandPool)
+            
+            m_vkGetDeviceQueue(m_Vulkan->device, m_Vulkan->queue_compute.index, 0, &m_ComputeQueue);
+            
+            // Use the current window size as the swapchain size
+            SDL_GetWindowSize(params->window, (int*)&m_DisplayWidth, (int*)&m_DisplayHeight);
+            
+            // Rounddown to even number to avoid a crash at texture creation
+            // If the window is odd in a direction, it will crop 1px the backbuffer in that direction
+            m_DisplayWidth = (m_DisplayWidth + 1) & ~1;
+            m_DisplayHeight = (m_DisplayHeight + 1) & ~1;
+            
+            VkPhysicalDeviceProperties props = {};
+            fn_vkGetPhysicalDeviceProperties(m_Vulkan->phys_device, &props);
+            s_VulkanMinorVersion = VK_VERSION_MINOR(props.apiVersion);
+            
+            const size_t scratchBufferSize = ffxGetScratchMemorySizeVK(
+                m_Vulkan->phys_device,
+                FFX_FSR1_CONTEXT_COUNT
+                );
+            
+            m_ScratchBuffer  = calloc(1, scratchBufferSize);
+            
+            VkDeviceContext ffxVkDeviceContext = {};
+            ffxVkDeviceContext.vkDevice        = m_Vulkan->device;
+            ffxVkDeviceContext.vkPhysicalDevice = m_Vulkan->phys_device;
+            ffxVkDeviceContext.vkDeviceProcAddr = ffxVkGetDeviceProcAddrWrapper;
+            
+            FfxDevice ffxDevice = ffxGetDeviceVK(&ffxVkDeviceContext);
+            
+            FfxInterface backendInterface = {};
+            FfxErrorCode errorCode = ffxGetInterfaceVK(
+                &backendInterface,
+                ffxDevice,
+                m_ScratchBuffer,
+                scratchBufferSize,
+                FFX_FSR1_CONTEXT_COUNT
+                );
+            
+            if (errorCode != FFX_OK) {
+                free(m_ScratchBuffer);
+                return false;
+            }
+            
+            // Create FSR1 Context
+            FfxFsr1ContextDescription contextDesc = {};
+            contextDesc.flags                = FFX_FSR1_ENABLE_RCAS | FFX_FSR1_RCAS_DENOISE | FFX_FSR1_ENABLE_HIGH_DYNAMIC_RANGE;
+            contextDesc.maxRenderSize.width  = params->width;
+            contextDesc.maxRenderSize.height = params->height;
+            contextDesc.displaySize.width    = m_DisplayWidth;
+            contextDesc.displaySize.height   = m_DisplayHeight;
+            contextDesc.outputFormat         = m_IsTexture10bits ? FFX_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
+            contextDesc.backendInterface     = backendInterface;
+            
+            errorCode = ffxFsr1ContextCreate(&m_FSR1Context, &contextDesc);
+            if (errorCode != FFX_OK) {
+                free(m_ScratchBuffer);
+                return false;
+            }
+            
+            m_FfxResourceDesc = {};
+            m_FfxResourceDesc.type     = FFX_RESOURCE_TYPE_TEXTURE2D;
+            m_FfxResourceDesc.format   = m_IsTexture10bits ? FFX_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
+            m_FfxResourceDesc.width    = params->width;
+            m_FfxResourceDesc.height   = params->height;
+            m_FfxResourceDesc.mipCount = 1;
+            m_FfxResourceDesc.depth    = 1;
+            m_FfxResourceDesc.flags    = FFX_RESOURCE_FLAGS_NONE;
+            m_FfxResourceDesc.usage    = FFX_RESOURCE_USAGE_READ_ONLY;
+            
+            pl_vulkan_sem_params semParams = {};
+            semParams.type = VK_SEMAPHORE_TYPE_BINARY;
+            m_SemHold    = pl_vulkan_sem_create(m_Vulkan->gpu, &semParams);
+            m_SemRelease = pl_vulkan_sem_create(m_Vulkan->gpu, &semParams);
+            
+            if (m_SemHold == VK_NULL_HANDLE || m_SemRelease == VK_NULL_HANDLE) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "FSR1: Failed to create semaphores");
+                pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemHold);
+                pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemRelease);
+                return false;
+            }
+            
+            VkCommandPoolCreateInfo poolInfo = {};
+            poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolInfo.queueFamilyIndex = m_Vulkan->queue_compute.index;
+            poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
+            
+            m_vkCreateCommandPool(m_Vulkan->device, &poolInfo, nullptr, &m_FSR1CommandPool);
+            
+            VkCommandBufferAllocateInfo allocInfo = {};
+            allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool        = m_FSR1CommandPool;
+            allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+            
+            m_vkAllocateCommandBuffers(m_Vulkan->device, &allocInfo, &m_FSR1CommandBuffer);
+            
+            // Create intermediate texture
+            pl_tex_params texParams = {};
+            texParams.w             = m_DecoderParams.width;
+            texParams.h             = m_DecoderParams.height;
+            texParams.format        = m_IsTexture10bits
+                                   ? pl_find_named_fmt(m_Vulkan->gpu, "rgb10a2")
+                                   : pl_find_named_fmt(m_Vulkan->gpu, "rgba8");
+            texParams.renderable    = true;
+            texParams.storable      = true;
+            texParams.sampleable    = true;
+            texParams.host_writable = false;
+            
+            m_IntermediateTexture = pl_tex_create(m_Vulkan->gpu, &texParams);
+            if (!m_IntermediateTexture) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "Failed to create FSR1 intermediate texture");
+                return false;
+            }
+            
+            // Output texture
+            pl_tex_params outTexParams = {};
+            outTexParams.w          = m_DisplayWidth;
+            outTexParams.h          = m_DisplayHeight;
+            outTexParams.format     = m_IsTexture10bits
+                                      ? pl_find_named_fmt(m_Vulkan->gpu, "rgb10a2")
+                                      : pl_find_named_fmt(m_Vulkan->gpu, "rgba8");
+            outTexParams.renderable = true;
+            outTexParams.storable   = true;
+            outTexParams.sampleable = true;
+            
+            m_FSR1OutputTexture = pl_tex_create(m_Vulkan->gpu, &outTexParams);
+            if (!m_FSR1OutputTexture) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "FSR1: Failed to create output texture");
+                return false;
+            }
+            
+            m_OutputDesc = {};
+            m_OutputDesc.type     = FFX_RESOURCE_TYPE_TEXTURE2D;
+            m_OutputDesc.format   = m_IsTexture10bits ? FFX_SURFACE_FORMAT_R10G10B10A2_UNORM
+                                                    : FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
+            m_OutputDesc.width    = m_DisplayWidth;
+            m_OutputDesc.height   = m_DisplayHeight;
+            m_OutputDesc.mipCount = 1;
+            m_OutputDesc.depth    = 1;
+            m_OutputDesc.flags    = FFX_RESOURCE_FLAGS_NONE;
+            m_OutputDesc.usage    = FFX_RESOURCE_USAGE_UAV;
+            
+            m_DispatchParams = {};
+            m_DispatchParams.commandList      = ffxGetCommandListVK(m_FSR1CommandBuffer);
+            m_DispatchParams.renderSize       = { (uint32_t)m_DecoderParams.width,
+                                           (uint32_t)m_DecoderParams.height };
+            m_DispatchParams.enableSharpening = true;
+            m_DispatchParams.sharpness        = 0.75f;
+            
+            m_VideoEnhancement = &VideoEnhancement::getInstance();
+            m_VideoEnhancement->enableVideoEnhancement(true);
+            m_VideoEnhancement->setRatio(static_cast<float>(m_DisplayHeight) / static_cast<float>(m_DecoderParams.height));
+            m_VideoEnhancement->setAlgo("Shader FSR1");
+            
+            m_FSR1ContextCreated = true;
+        }
+#endif
+    
     }
 
     return true;
@@ -854,7 +1117,141 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
     targetFrame.crop.y0 = dst.y;
     targetFrame.crop.x1 = dst.x + dst.w;
     targetFrame.crop.y1 = dst.y + dst.h;
+    
+#ifdef HAVE_FFX
+    if (m_FSR1ContextCreated) {
+        
+        // 2. Rendre dans la texture intermédiaire
+        {
+            pl_frame intermediateFrame = {};
+            intermediateFrame.num_planes = 1;
+            intermediateFrame.planes[0].texture = m_IntermediateTexture;
+            intermediateFrame.planes[0].components = 4;
+            intermediateFrame.planes[0].component_mapping[0] = PL_CHANNEL_R;
+            intermediateFrame.planes[0].component_mapping[1] = PL_CHANNEL_G;
+            intermediateFrame.planes[0].component_mapping[2] = PL_CHANNEL_B;
+            intermediateFrame.planes[0].component_mapping[3] = PL_CHANNEL_A;
+            intermediateFrame.crop = {
+                0, 0,
+                (float)m_DecoderParams.width,
+                (float)m_DecoderParams.height
+            };
+            intermediateFrame.repr  = mappedFrame.repr;
+            intermediateFrame.color = mappedFrame.color;
 
+            if (!pl_render_image(m_Renderer, &mappedFrame, &intermediateFrame, &pl_render_fast_params)) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "FSR1: pl_render_image() to intermediate failed, falling back");
+                goto DirectRender;
+            }
+        }
+        
+        // 4. Hold de la texture intermédiaire — libplacebo → nous        
+        VkImageLayout intermediateLayout;
+        
+        pl_vulkan_hold_params holdParams = {};
+        holdParams.tex        = m_IntermediateTexture;
+        holdParams.out_layout = &intermediateLayout;
+        holdParams.qf         = VK_QUEUE_FAMILY_IGNORED;
+        holdParams.semaphore  = { m_SemHold, 0 };
+        
+        bool holdOk = pl_vulkan_hold_ex(m_Vulkan->gpu, &holdParams);
+        if (!holdOk) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "FSR1: pl_vulkan_hold_ex() failed, falling back");
+            goto DirectRender;
+        }
+        
+        VkCommandBufferBeginInfo beginInfo = {};
+        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
+        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
+        m_vkBeginCommandBuffer(m_FSR1CommandBuffer, &beginInfo);
+        
+        // 6. Dispatch FSR1
+        VkImage srcVkImage = pl_vulkan_unwrap(m_Vulkan->gpu, m_IntermediateTexture,
+                                              nullptr, nullptr);
+        VkImage dstVkImage = pl_vulkan_unwrap(m_Vulkan->gpu, m_FSR1OutputTexture,
+                                              nullptr, nullptr);
+        
+        m_DispatchParams.color  = ffxGetResourceVK(srcVkImage, m_FfxResourceDesc,
+                                                L"FSR1_Input",
+                                                FFX_RESOURCE_STATE_COMPUTE_READ);
+        m_DispatchParams.output = ffxGetResourceVK(dstVkImage, m_OutputDesc,
+                                                 L"FSR1_Output",
+                                                 FFX_RESOURCE_STATE_UNORDERED_ACCESS);
+        
+        FfxErrorCode errorCode = ffxFsr1ContextDispatch(&m_FSR1Context, &m_DispatchParams);
+        if (errorCode != FFX_OK) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "ffxFsr1ContextDispatch() failed: %d", errorCode);
+        }
+        
+        m_vkEndCommandBuffer(m_FSR1CommandBuffer);
+        
+        // 7. Soumettre le command buffer en attendant m_SemHold, signalant m_SemRelease
+        VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
+        VkSubmitInfo submitInfo = {};
+        submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
+        submitInfo.waitSemaphoreCount   = 1;
+        submitInfo.pWaitSemaphores      = &m_SemHold;
+        submitInfo.pWaitDstStageMask    = &waitStage;
+        submitInfo.commandBufferCount   = 1;
+        submitInfo.pCommandBuffers      = &m_FSR1CommandBuffer;
+        submitInfo.signalSemaphoreCount = 1;
+        submitInfo.pSignalSemaphores    = &m_SemRelease;
+        
+        
+        
+        
+        m_Vulkan->lock_queue(m_Vulkan, m_Vulkan->queue_compute.index, 0);
+        m_vkQueueSubmit(m_ComputeQueue, 1, &submitInfo, VK_NULL_HANDLE);
+        m_Vulkan->unlock_queue(m_Vulkan, m_Vulkan->queue_compute.index, 0);
+        
+        // 8. Release — nous → libplacebo
+        pl_vulkan_release_params releaseParams = {};
+        releaseParams.tex       = m_IntermediateTexture;
+        releaseParams.layout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
+        releaseParams.qf        = VK_QUEUE_FAMILY_IGNORED;
+        releaseParams.semaphore = { m_SemRelease, 0 };
+        
+        pl_vulkan_release_ex(m_Vulkan->gpu, &releaseParams);
+        
+        // 9. Cleanup command pool (après que le GPU a fini)
+        // Note: à déplacer dans un cleanup différé si besoin de perf
+        m_vkQueueWaitIdle(m_ComputeQueue);
+        
+        // Blit FSR1 output → swapchain via libplacebo
+        pl_frame fsr1OutputFrame = {};
+        fsr1OutputFrame.num_planes = 1;
+        fsr1OutputFrame.planes[0].texture = m_FSR1OutputTexture;
+        fsr1OutputFrame.planes[0].components = 4;
+        fsr1OutputFrame.planes[0].component_mapping[0] = PL_CHANNEL_R;
+        fsr1OutputFrame.planes[0].component_mapping[1] = PL_CHANNEL_G;
+        fsr1OutputFrame.planes[0].component_mapping[2] = PL_CHANNEL_B;
+        fsr1OutputFrame.planes[0].component_mapping[3] = PL_CHANNEL_A;
+        fsr1OutputFrame.crop = {
+            0, 0,
+            (float)m_DisplayWidth,
+            (float)m_DisplayHeight
+        };
+        fsr1OutputFrame.repr  = mappedFrame.repr;
+        fsr1OutputFrame.color = mappedFrame.color;
+        
+        // targetFrame pointe vers le swapchain
+        targetFrame.num_overlays = (int)overlays.size();
+        targetFrame.overlays     = overlays.data();
+        
+        if (!pl_render_image(m_Renderer, &fsr1OutputFrame, &targetFrame, &pl_render_fast_params)) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "FSR1: pl_render_image() output to swapchain failed");
+        }
+    
+        
+        goto SubmitFrame;
+    }
+#endif
+    
+DirectRender:
     // Render the video image and overlays into the swapchain buffer
     targetFrame.num_overlays = (int)overlays.size();
     targetFrame.overlays = overlays.data();
@@ -864,6 +1261,7 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         // NB: We must fallthrough to call pl_swapchain_submit_frame()
     }
 
+SubmitFrame:
     // Submit the frame for display and swap buffers
     m_HasPendingSwapchainFrame = false;
     if (!pl_swapchain_submit_frame(m_Swapchain)) {
@@ -993,6 +1391,12 @@ void PlVkRenderer::notifyOverlayUpdated(Overlay::OverlayType type)
 
 bool PlVkRenderer::notifyWindowChanged(PWINDOW_STATE_CHANGE_INFO info)
 {
+#ifdef HAVE_FFX
+    // We force the reinitialization of FFX API when the Window change
+    if (m_FSR1ContextCreated) {
+        return !(info->stateChangeFlags & (WINDOW_STATE_CHANGE_DISPLAY | WINDOW_STATE_CHANGE_SIZE));
+    }
+#endif
     // We can transparently handle size and display changes
     return !(info->stateChangeFlags & ~(WINDOW_STATE_CHANGE_SIZE | WINDOW_STATE_CHANGE_DISPLAY));
 }

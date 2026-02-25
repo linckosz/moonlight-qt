@@ -773,6 +773,7 @@ public:
         // Video Super Resolution from MetalFX is available starting from MacOS 13+
         if (@available(macOS 13.0, *) && m_DecoderParams.enableVideoEnhancement) {
             // Check if the user has enable Video enhancement
+            m_VideoEnhancement->enableVideoEnhancement(true);
             m_VideoEnhancement->setVSRcapable(true);
             m_VideoEnhancement->setAlgo("MetalFX");
         } else {

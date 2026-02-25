@@ -344,6 +344,42 @@ libplacebo {
         streaming/video/ffmpeg-renderers/plvk_c.c
     HEADERS += \
         streaming/video/ffmpeg-renderers/plvk.h
+    
+    # FidelityFX SDK is available only on X64 for Vulkan
+    contains(QT_ARCH, x86_64) {
+        message(AMD FidelityFX SDK)
+        
+        unix {
+            DEFINES += HAVE_FFX
+        }
+        
+        win32 {
+            VULKAN_LIB = $$(VULKAN_SDK)/Lib/vulkan-1.lib
+            exists($$VULKAN_LIB) {
+                DEFINES += HAVE_FFX
+                LIBS += $$VULKAN_LIB
+            }
+        }
+        
+        contains(DEFINES, HAVE_FFX) {
+            DEFINES += FFX_FSR1
+            
+            SOURCES += \
+                ../third-party/ffx_sdk/custom/ffx_vk.cpp \
+                ../third-party/FidelityFX-SDK-v1.1.4/sdk/src/components/fsr1/ffx_fsr1.cpp \
+                ../third-party/FidelityFX-SDK-v1.1.4/sdk/src/backends/shared/blob_accessors/ffx_fsr1_shaderblobs.cpp \
+                ../third-party/FidelityFX-SDK-v1.1.4/sdk/src/backends/shared/ffx_shader_blobs.cpp
+                
+            SOURCES += $$files(../third-party/FidelityFX-SDK-v1.1.4/sdk/src/shared/*.cpp)
+            
+            INCLUDEPATH += \
+                $$PWD/../third-party/ffx_sdk/shaders/vk \
+                $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/include \
+                $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/src/shared \
+                $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/src/backends/shared \
+                $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/src/components
+        }
+    }
 }
 config_EGL {
     message(EGL renderer selected)
@@ -420,7 +456,7 @@ win32:!winrt {
     INCLUDEPATH += $$PWD/../third-party/RTX_Video_SDK/include
 }
 
-win32:!winrt | unix:!macx {
+win32:!winrt {
     message(AMD Upscaling technologies)
 
     SOURCES += \
@@ -482,12 +518,7 @@ win32:!winrt {
 win32:!winrt {
     SOURCES += ../third-party/AMF/amf/public/common/Windows/ThreadWindows.cpp
 }
-unix:!macx {
-    LIBS += -ldl
-    
-    SOURCES += ../third-party/AMF/amf/public/common/Linux/ThreadLinux.cpp
-}
-win32:!winrt | unix:!macx {
+win32:!winrt {
     message(NVIDIA Image Scaling)
 
     INCLUDEPATH += $$PWD/../third-party/NVIDIAImageScaling/NIS

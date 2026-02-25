@@ -26,5 +26,7 @@ third-party/**
 !third-party/IntelVPL/**/
 !third-party/IntelVPL/*/lib/**
 !third-party/IntelVPL/*/include/**
+!third-party/ffx_sdk/
+!third-party/ffx_sdk/**
 !third-party/stb_image/
 !third-party/stb_image/**
