@@ -36,6 +36,12 @@
 #include "public/include/components/VideoConverter.h"
 using namespace amf;
 
+// FidelityFX SDK v1.1.4
+// #include <FidelityFX/host/ffx_interface.h>
+#include <FidelityFX/host/ffx_fsr1.h>
+#include <FidelityFX/host/ffx_breadcrumbs.h>
+#include <FidelityFX/host/backends/dx12/ffx_dx12.h>
+
 // NVIDIA VSR
 #include <nvsdk_ngx.h>
 #include <nvsdk_ngx_defs.h>
@@ -156,6 +162,7 @@ private:
         CONVERT_AMF,
         UPSCALE_SHADER,
         UPSCALE_VIDEOPROCESSOR,
+        UPSCALE_FFX,
         UPSCALE_AMF,
         UPSCALE_VSR,
         UPSCALE_VPL,
@@ -370,6 +377,12 @@ private:
     std::vector<VppSurface> m_VppSurfaceIn;
     std::vector<VppSurface> m_VppSurfaceOut;
     mfxMemoryInterface* m_MemoryInterface = nullptr;
+    
+    // FidelityFX FSR1
+    FfxFsr1Context m_FSR1Context;
+    FfxResourceDescription m_FfxResourceDesc;
+    bool m_FSR1ContextCreated = false;
+    void* m_ScratchBuffer = nullptr;
     
     // Used for debug purpose only
     ComPtr<ID3D12CommandAllocator> m_PictureCommandAllocator;

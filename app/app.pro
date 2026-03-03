@@ -435,6 +435,71 @@ win32:!winrt | unix:!macx {
 }
 
 win32:!winrt {
+    message(AMD FidelityFX SDK)
+    
+    OS_ARCHI = x64
+    contains(QT_ARCH, arm64) {
+        OS_ARCHI = arm64
+    }
+    
+    # LIBS += -L$$PWD/../third-party/FidelityFX-SDK-v1.1.4/PrebuiltSignedDLL -lamd_fidelityfx_dx12
+    
+    LIBS += -L$$PWD/../third-party/ffx_sdk
+    
+    CONFIG(debug, debug|release) {
+        # Debug
+        LIBS += -lffx_fsr1_$${OS_ARCHI}d
+    }
+    
+    CONFIG(release, debug|release) {
+        # Release
+        LIBS += -lffx_fsr1_$${OS_ARCHI}
+    }
+
+    # DX12
+    CONFIG(debug, debug|release) {
+        # Debug
+        LIBS += -lffx_backend_dx12_$${OS_ARCHI}d
+    }
+    
+    CONFIG(release, debug|release) {
+        # Release
+        LIBS += -lffx_backend_dx12_$${OS_ARCHI}
+    }
+    
+    # Vulkan fallback
+    CONFIG(debug, debug|release) {
+        # Debug
+        LIBS += -lffx_backend_vk_x64d
+    }
+    
+    CONFIG(release, debug|release) {
+        # Release
+        LIBS += -lffx_backend_vk_x64
+    }
+    
+    INCLUDEPATH += $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/include
+}
+
+unix:!macx {
+    message(AMD FidelityFX SDK)
+    
+    LIBS += -L$$PWD/../third-party/ffx_sdk
+    
+    CONFIG(debug, debug|release) {
+        # Debug
+        LIBS += -lffx_backend_vk_x64d -lffx_fsr1_x64d
+    }
+    
+    CONFIG(release, debug|release) {
+        # Release
+        LIBS += -lffx_backend_vk_x64 -lffx_fsr1_x64
+    }
+    
+    INCLUDEPATH += $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/include
+}
+
+win32:!winrt {
     message(Intel VPL Upscaling technologies)
     
     # IntelVPL already exists and is compiled for x64 architecture.

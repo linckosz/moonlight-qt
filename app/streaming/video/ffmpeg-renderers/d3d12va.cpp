@@ -177,6 +177,12 @@ D3D12VARenderer::~D3D12VARenderer()
     for (auto& item : m_VppSurfaceOut) {
         item.surface = nullptr;
     }
+    
+    // FidelityFX
+    if (m_FSR1ContextCreated) {
+        ffxFsr1ContextDestroy(&m_FSR1Context);
+        free(m_ScratchBuffer);
+    }
 
     m_D3D11VideoDevice.Reset();
     m_D3D11DeviceContext.Reset();
@@ -462,18 +468,18 @@ void D3D12VARenderer::enhanceAutoSelection()
             
             m_VendorVSRenabled = false;
             m_VendorHDRenabled = false;
-            m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
+            m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
             m_RenderStep1 = RenderStep::CONVERT_SHADER;
-            m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+            m_RenderStep2 = RenderStep::UPSCALE_FFX;
             m_InfoUpscaler = "FSR1 EASU";
             m_InfoSharpener = "FRS1 RCAS";
             m_InfoAlgo = "Shader FSR1";
 #else
             m_VendorVSRenabled = false;
             m_VendorHDRenabled = false;
-            m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
+            m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
             m_RenderStep1 = RenderStep::CONVERT_SHADER;
-            m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+            m_RenderStep2 = RenderStep::UPSCALE_FFX;
             m_InfoUpscaler = "FSR1 EASU";
             m_InfoSharpener = "FRS1 RCAS";
             m_InfoAlgo = "Shader FSR1";
@@ -560,12 +566,12 @@ void D3D12VARenderer::enhanceAutoSelection()
         break;
 
     case StreamingPreferences::SRM_03:
-        // FSR1 (Shader version)
+        // FSR1 (FidelidyFX Shader version)
         m_VendorVSRenabled = false;
         // m_VendorHDRenabled: Keep default setting
-        m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
+        m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
         m_RenderStep1 = RenderStep::CONVERT_SHADER;
-        m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+        m_RenderStep2 = RenderStep::UPSCALE_FFX;
         m_InfoUpscaler = "FSR1 EASU";
         m_InfoSharpener = "FRS1 RCAS";
         m_InfoAlgo = "Shader FSR1";
@@ -3595,9 +3601,9 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
                 m_RenderStep1 = RenderStep::CONVERT_SHADER;
                 break;
             case RenderStep::ALL_VIDEOPROCESSOR:
-                m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
+                m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
                 m_RenderStep1 = RenderStep::CONVERT_SHADER;
-                m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+                m_RenderStep2 = RenderStep::UPSCALE_FFX;
                 m_InfoUpscaler = "FSR1 EASU";
                 m_InfoSharpener = "FRS1 RCAS";
                 m_InfoAlgo = "Shader FSR1";
@@ -3626,9 +3632,9 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             // Render Step 1
             switch (m_RenderStep1) {
             case RenderStep::ALL_VIDEOPROCESSOR:
-                m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
+                m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
                 m_RenderStep1 = (m_IsTextureYUV444 && m_VideoProcessorConvertEnabled) ? RenderStep::CONVERT_VIDEOPROCESSOR : RenderStep::CONVERT_SHADER;
-                m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+                m_RenderStep2 = RenderStep::UPSCALE_FFX;
                 m_InfoUpscaler = "FSR1 EASU";
                 m_InfoSharpener = "FRS1 RCAS";
                 m_InfoAlgo = "Shader FSR1";
@@ -3644,8 +3650,8 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
             // Render Step 2
             switch (m_RenderStep2) {
             case RenderStep::UPSCALE_VIDEOPROCESSOR:
-                m_EnhancerType = D3D12VideoShaders::Enhancer::FSR1;
-                m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+                m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
+                m_RenderStep2 = RenderStep::UPSCALE_FFX;
                 m_InfoUpscaler = "FSR1 EASU";
                 m_InfoAlgo = "Shader FSR1";
                 if(m_VendorHDRenabled){
@@ -4121,6 +4127,63 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         if(!verifyHResult(m_hr, "m_Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_OverlayPSO));")){
             return false;
         }
+    }
+    
+    // FidelityFX
+    // https://gpuopen.com/manuals/fidelityfx_sdk/techniques/super-resolution-spatial/
+    if (m_RenderStep2 == RenderStep::UPSCALE_FFX) {
+        FfxErrorCode errorCode;
+        
+        // Query the amount of scratch memory required for the FFX Backend
+        const size_t scratchBufferSize = ffxGetScratchMemorySizeDX12(FFX_FSR1_CONTEXT_COUNT);
+        
+        FfxInterface backendInterface = {};
+
+        m_ScratchBuffer  = calloc(1, scratchBufferSize);
+        errorCode = ffxGetInterfaceDX12(
+                    &backendInterface,
+                    ffxGetDeviceDX12(m_Device.Get()),
+                    m_ScratchBuffer,
+                    scratchBufferSize,
+                    FFX_FSR1_CONTEXT_COUNT);
+        if (errorCode != FFX_OK) {
+            free(m_ScratchBuffer);
+            return false;
+        }
+        
+        // Fill out arguments
+        
+        FfxFsr1ContextDescription contextDesc = {};
+        contextDesc.flags                = FFX_FSR1_ENABLE_RCAS | FFX_FSR1_RCAS_DENOISE;
+        if (m_IsFrameHDR) {
+            contextDesc.flags           |= FFX_FSR1_ENABLE_HIGH_DYNAMIC_RANGE;
+        }
+        contextDesc.maxRenderSize.width  = m_DecoderParams.textureWidth;
+        contextDesc.maxRenderSize.height = m_DecoderParams.textureHeight;
+        contextDesc.displaySize.width    = m_OutputTextureInfo.width;
+        contextDesc.displaySize.height   = m_OutputTextureInfo.height;
+        contextDesc.outputFormat         = (m_RGBFormat == DXGI_FORMAT_R8G8B8A8_UNORM) ? FFX_SURFACE_FORMAT_R8G8B8A8_UNORM : FFX_SURFACE_FORMAT_R10G10B10A2_UNORM;
+        contextDesc.backendInterface     = backendInterface;
+        
+        // Create the FSR1 context
+        errorCode = ffxFsr1ContextCreate(&m_FSR1Context, &contextDesc);
+        if (errorCode != FFX_OK) {
+            free(m_ScratchBuffer);
+            return false;
+        }
+        
+        m_FfxResourceDesc = {};
+        m_FfxResourceDesc.type     = FFX_RESOURCE_TYPE_TEXTURE2D;
+        m_FfxResourceDesc.format   = (m_RGBFormat == DXGI_FORMAT_R8G8B8A8_UNORM) ? FFX_SURFACE_FORMAT_R8G8B8A8_UNORM : FFX_SURFACE_FORMAT_R10G10B10A2_UNORM;
+        m_FfxResourceDesc.width    = m_DecoderParams.textureWidth;
+        m_FfxResourceDesc.height   = m_DecoderParams.textureHeight;
+        m_FfxResourceDesc.mipCount = 1;
+        m_FfxResourceDesc.depth    = 1;
+        m_FfxResourceDesc.flags    = FFX_RESOURCE_FLAGS_NONE;
+        m_FfxResourceDesc.usage    = FFX_RESOURCE_USAGE_READ_ONLY;
+                
+        m_FSR1ContextCreated = true;
+        
     }
 
     m_TimerFPS.start();
@@ -5324,6 +5387,33 @@ RenderStep2:
             );
 
         TimerInfo("ms (Shader Sharpen RGB)", true);
+
+        goto Draw;
+    }
+    
+    // RGB Upscaling using FidelityFX
+    if(m_RenderStep2 == RenderStep::UPSCALE_FFX){
+
+        FfxFsr1DispatchDescription dispatchParameters = {};
+        
+        dispatchParameters.commandList = ffxGetCommandListDX12(m_GraphicsCommandList.Get());
+        dispatchParameters.renderSize = { static_cast<uint32_t>(m_DecoderParams.textureWidth), static_cast<uint32_t>(m_DecoderParams.textureHeight) };
+        dispatchParameters.enableSharpening = true;
+        dispatchParameters.sharpness = 0.75f;
+        dispatchParameters.color = ffxGetResourceDX12(m_RGBTexture.Get(), m_FfxResourceDesc, L"FSR1_InputColor", FFX_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        dispatchParameters.output = ffxGetResourceDX12(m_OutputTexture.Get(), m_FfxResourceDesc, L"FSR1_OutputUpscaledColor", FFX_RESOURCE_STATE_PIXEL_COMPUTE_READ);
+        
+        FfxErrorCode errorCode = ffxFsr1ContextDispatch(&m_FSR1Context, &dispatchParameters);
+        if (errorCode != FFX_OK) {
+            if (m_OutputTexturePrevious) {
+                m_OutputTexture = m_OutputTexturePrevious;
+                goto Draw;
+            } else {
+                goto Present;
+            }
+        }
+        
+        TimerInfo("ms (FidelityFX Upscale RGB)", true);
 
         goto Draw;
     }
