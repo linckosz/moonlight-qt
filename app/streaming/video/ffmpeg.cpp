@@ -1028,17 +1028,21 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
     // First pass using our top-tier hwaccel implementations
     if (pass == 0) {
         switch (hwDecodeCfg->device_type) {
+#ifdef HAVE_LIBPLACEBO_VULKAN
+        case AV_HWDEVICE_TYPE_VULKAN:
+            return new PlVkRenderer(true);
+#endif            
 #ifdef Q_OS_WIN32
-        // DXVA2 appears in the hwaccel list before D3D11VA, so we only check for D3D11VA
-        // on the first pass to ensure we prefer D3D11VA over DXVA2.
-        case AV_HWDEVICE_TYPE_D3D11VA:
-            if (!params->enableVideoEnhancement){
-                return new D3D11VARenderer(pass);
-            }
-            // Do not break here
-        case AV_HWDEVICE_TYPE_D3D12VA:
-            // D3D12VARenderer is also able to receive frame from AV_HWDEVICE_TYPE_D3D11VA via Interop
-            return new D3D12VARenderer(pass);
+        // // DXVA2 appears in the hwaccel list before D3D11VA, so we only check for D3D11VA
+        // // on the first pass to ensure we prefer D3D11VA over DXVA2.
+        // case AV_HWDEVICE_TYPE_D3D11VA:
+        //     if (!params->enableVideoEnhancement){
+        //         return new D3D11VARenderer(pass);
+        //     }
+        //     // Do not break here
+        // case AV_HWDEVICE_TYPE_D3D12VA:
+        //     // D3D12VARenderer is also able to receive frame from AV_HWDEVICE_TYPE_D3D11VA via Interop
+        //     return new D3D12VARenderer(pass);
 #endif
 #ifdef Q_OS_DARWIN
         case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
@@ -1057,10 +1061,10 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
         case AV_HWDEVICE_TYPE_DRM:
             return new DrmRenderer(hwDecodeCfg->device_type);
 #endif
-#ifdef HAVE_LIBPLACEBO_VULKAN
-        case AV_HWDEVICE_TYPE_VULKAN:
-            return new PlVkRenderer(true);
-#endif
+// #ifdef HAVE_LIBPLACEBO_VULKAN
+//         case AV_HWDEVICE_TYPE_VULKAN:
+//             return new PlVkRenderer(true);
+// #endif
         default:
             switch (hwDecodeCfg->pix_fmt) {
 #ifdef HAVE_DRM
@@ -1088,14 +1092,14 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
         // to that before giving D3D11VA/D3D12VA another try as a last resort.
         case AV_HWDEVICE_TYPE_DXVA2:
             return new DXVA2Renderer(pass);
-        case AV_HWDEVICE_TYPE_D3D11VA:
-            if (!params->enableVideoEnhancement){
-                return new D3D11VARenderer(pass);
-            }
-            // Do not break here
-        case AV_HWDEVICE_TYPE_D3D12VA:
-            // D3D12VARenderer is also able to receive frame from AV_HWDEVICE_TYPE_D3D11VA via Interop
-            return new D3D12VARenderer(pass);
+        // case AV_HWDEVICE_TYPE_D3D11VA:
+        //     if (!params->enableVideoEnhancement){
+        //         return new D3D11VARenderer(pass);
+        //     }
+        //     // Do not break here
+        // case AV_HWDEVICE_TYPE_D3D12VA:
+        //     // D3D12VARenderer is also able to receive frame from AV_HWDEVICE_TYPE_D3D11VA via Interop
+        //     return new D3D12VARenderer(pass);
 #endif
 #ifdef Q_OS_DARWIN
         case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:

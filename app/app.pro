@@ -456,16 +456,16 @@ win32:!winrt {
         LIBS += -lffx_fsr1_$${OS_ARCHI}
     }
 
-    # DX12
-    CONFIG(debug, debug|release) {
-        # Debug
-        LIBS += -lffx_backend_dx12_$${OS_ARCHI}d
-    }
+    # # DX12
+    # CONFIG(debug, debug|release) {
+    #     # Debug
+    #     LIBS += -lffx_backend_dx12_$${OS_ARCHI}d
+    # }
     
-    CONFIG(release, debug|release) {
-        # Release
-        LIBS += -lffx_backend_dx12_$${OS_ARCHI}
-    }
+    # CONFIG(release, debug|release) {
+    #     # Release
+    #     LIBS += -lffx_backend_dx12_$${OS_ARCHI}
+    # }
     
     # Vulkan fallback
     CONFIG(debug, debug|release) {
@@ -477,6 +477,8 @@ win32:!winrt {
         # Release
         LIBS += -lffx_backend_vk_x64
     }
+    
+    LIBS += $$(VULKAN_SDK)/Lib/vulkan-1.lib
     
     INCLUDEPATH += $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/include
 }
@@ -546,11 +548,6 @@ win32:!winrt {
 
 win32:!winrt {
     SOURCES += ../third-party/AMF/amf/public/common/Windows/ThreadWindows.cpp
-}
-unix:!macx {
-    LIBS += -ldl
-    
-    SOURCES += ../third-party/AMF/amf/public/common/Linux/ThreadLinux.cpp
 }
 win32:!winrt | unix:!macx {
     message(NVIDIA Image Scaling)

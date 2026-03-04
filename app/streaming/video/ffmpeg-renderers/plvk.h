@@ -10,6 +10,10 @@
 #include <libplacebo/renderer.h>
 #include <libplacebo/vulkan.h>
 
+#include "streaming/video/videoenhancement.h"
+#include <FidelityFX/host/ffx_fsr1.h>
+#include <FidelityFX/host/backends/vk/ffx_vk.h>
+
 class PlVkRenderer : public IFFmpegRenderer {
 public:
     PlVkRenderer(bool hwaccel = false, IFFmpegRenderer *backendRenderer = nullptr);
@@ -100,4 +104,14 @@ private:
     PFN_vkGetPhysicalDeviceProperties fn_vkGetPhysicalDeviceProperties = nullptr;
     PFN_vkGetPhysicalDeviceSurfaceSupportKHR fn_vkGetPhysicalDeviceSurfaceSupportKHR = nullptr;
     PFN_vkEnumerateDeviceExtensionProperties fn_vkEnumerateDeviceExtensionProperties = nullptr;
+    
+    // The frame texture is 10-bits (HDR and SDR)
+    bool m_IsTexture10bits = false;
+    
+    // FidelityFX FSR1 Upscaling
+    VideoEnhancement* m_VideoEnhancement;
+    FfxFsr1Context m_FSR1Context;
+    FfxResourceDescription m_FfxResourceDesc;
+    bool m_FSR1ContextCreated = false;
+    void* m_ScratchBuffer = nullptr;
 };

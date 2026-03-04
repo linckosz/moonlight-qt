@@ -117,6 +117,8 @@ PlVkRenderer::PlVkRenderer(bool hwaccel, IFFmpegRenderer *backendRenderer) :
     }
 
     m_Log = pl_log_create(PL_API_VER, &logParams);
+    
+    m_VideoEnhancement = &VideoEnhancement::getInstance();
 }
 
 PlVkRenderer::~PlVkRenderer()
@@ -362,6 +364,9 @@ bool PlVkRenderer::isExtensionSupportedByPhysicalDevice(VkPhysicalDevice device,
 bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
 {
     m_Window = params->window;
+    
+    // Check if HDR is enabled by the user in the UI settings.
+    m_IsTexture10bits = params->videoFormat & VIDEO_FORMAT_MASK_10BIT;
 
     unsigned int instanceExtensionCount = 0;
     if (!SDL_Vulkan_GetInstanceExtensions(params->window, &instanceExtensionCount, nullptr)) {
@@ -519,6 +524,90 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
                          "av_hwdevice_ctx_init() failed: %d",
                          err);
             return false;
+        }
+        
+        // FidelityFX
+        // https://gpuopen.com/manuals/fidelityfx_sdk/techniques/super-resolution-spatial/
+        if (params->enableVideoEnhancement) {
+            
+            const size_t scratchBufferSize = ffxGetScratchMemorySizeVK(
+                m_Vulkan->phys_device,   // VkPhysicalDevice
+                FFX_FSR1_CONTEXT_COUNT
+                );
+            
+            m_ScratchBuffer  = calloc(1, scratchBufferSize);
+            
+            VkDeviceContext ffxVkDeviceContext = {};
+            ffxVkDeviceContext.vkDevice         = m_Vulkan->device;     // VkDevice
+            ffxVkDeviceContext.vkPhysicalDevice  = m_Vulkan->phys_device;   // VkPhysicalDevice
+            // ffxVkDeviceContext.vkDeviceProcAddr  = vkGetDeviceProcAddr;         // PFN_vkGetDeviceProcAddr
+            
+            PFN_vkGetInstanceProcAddr vkGetInstanceProcAddrFn =
+                (PFN_vkGetInstanceProcAddr)m_PlVkInstance->get_proc_addr(
+                    m_PlVkInstance->instance,
+                    "vkGetInstanceProcAddr"
+                    );
+            
+            ffxVkDeviceContext.vkDeviceProcAddr =
+                (PFN_vkGetDeviceProcAddr)vkGetInstanceProcAddrFn(
+                    m_PlVkInstance->instance,
+                    "vkGetDeviceProcAddr"
+                    );
+            
+            FFX_ASSERT(ffxVkDeviceContext.vkDeviceProcAddr != nullptr);
+            
+            // Device Vulkan
+            FfxDevice ffxDevice = ffxGetDeviceVK(&ffxVkDeviceContext);
+            
+            FfxInterface backendInterface = {};
+            FfxErrorCode errorCode = ffxGetInterfaceVK(
+                &backendInterface,
+                ffxDevice,
+                m_ScratchBuffer,
+                scratchBufferSize,
+                FFX_FSR1_CONTEXT_COUNT
+                );
+            
+            if (errorCode != FFX_OK) {
+                free(m_ScratchBuffer);
+                return false;
+            }
+            
+            // Fill out arguments
+            
+            FfxFsr1ContextDescription contextDesc = {};
+            contextDesc.flags                = FFX_FSR1_ENABLE_RCAS | FFX_FSR1_RCAS_DENOISE | FFX_FSR1_ENABLE_HIGH_DYNAMIC_RANGE;
+            // contextDesc.maxRenderSize.width  = params->width;
+            // contextDesc.maxRenderSize.height = params->height;
+            // contextDesc.displaySize.width    = params->width; //output
+            // contextDesc.displaySize.height   = params->height; //output
+            contextDesc.maxRenderSize.width  = 1280;  // résolution input
+            contextDesc.maxRenderSize.height = 720;
+            contextDesc.displaySize.width    = 1920;  // résolution output
+            contextDesc.displaySize.height   = 1080;
+            contextDesc.outputFormat         = m_IsTexture10bits ? FFX_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
+            contextDesc.backendInterface     = backendInterface;
+            
+            // Create the FSR1 context
+            errorCode = ffxFsr1ContextCreate(&m_FSR1Context, &contextDesc);
+            if (errorCode != FFX_OK) {
+                free(m_ScratchBuffer);
+                return false;
+            }
+            
+            m_FfxResourceDesc = {};
+            m_FfxResourceDesc.type     = FFX_RESOURCE_TYPE_TEXTURE2D;
+            m_FfxResourceDesc.format   = m_IsTexture10bits ? FFX_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
+            // m_FfxResourceDesc.width    = params->width;
+            // m_FfxResourceDesc.height   = params->height;
+            m_FfxResourceDesc.width    = 1280;
+            m_FfxResourceDesc.height   = 720;
+            m_FfxResourceDesc.mipCount = 1;
+            m_FfxResourceDesc.depth    = 1;
+            m_FfxResourceDesc.flags    = FFX_RESOURCE_FLAGS_NONE;
+            m_FfxResourceDesc.usage    = FFX_RESOURCE_USAGE_READ_ONLY;
+            
+            m_FSR1ContextCreated = true;
         }
     }
 
