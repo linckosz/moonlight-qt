@@ -110,6 +110,13 @@ private:
     
     // FidelityFX FSR1 Upscaling
     VideoEnhancement* m_VideoEnhancement;
+    DECODER_PARAMETERS m_DecoderParams;
+    pl_tex m_IntermediateTextures[2] = { nullptr, nullptr };
+    int m_IntermediateTextureIndex = 0;
+    pl_tex m_FSR1OutputTexture = nullptr;
+    VkQueue m_ComputeQueue = VK_NULL_HANDLE;
+    int m_DisplayWidth;
+    int m_DisplayHeight;
     FfxFsr1Context m_FSR1Context;
     FfxResourceDescription m_FfxResourceDesc;
     bool m_FSR1ContextCreated = false;
