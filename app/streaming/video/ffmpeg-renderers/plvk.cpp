@@ -681,6 +681,21 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
                 return false;
             }
             
+            VkCommandPoolCreateInfo poolInfo = {};
+            poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolInfo.queueFamilyIndex = m_Vulkan->queue_compute.index;
+            poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // important pour le reset
+            
+            vkCreateCommandPool(m_Vulkan->device, &poolInfo, nullptr, &m_FSR1CommandPool);
+            
+            VkCommandBufferAllocateInfo allocInfo = {};
+            allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool        = m_FSR1CommandPool;
+            allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+            
+            vkAllocateCommandBuffers(m_Vulkan->device, &allocInfo, &m_FSR1CommandBuffer);
+            
             m_FSR1ContextCreated = true;
         }
     }
@@ -1106,28 +1121,12 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
             goto DirectRender;
         }
         
-        // 5. Créer et enregistrer notre VkCommandBuffer pour FSR1
-        VkCommandPoolCreateInfo poolInfo = {};
-        poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.queueFamilyIndex = m_Vulkan->queue_compute.index;
-        poolInfo.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-        
-        VkCommandPool cmdPool = VK_NULL_HANDLE;
-        vkCreateCommandPool(m_Vulkan->device, &poolInfo, nullptr, &cmdPool);
-        
-        VkCommandBufferAllocateInfo allocInfo = {};
-        allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool        = cmdPool;
-        allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = 1;
-        
-        VkCommandBuffer cmdBuf = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(m_Vulkan->device, &allocInfo, &cmdBuf);
+        vkResetCommandBuffer(m_FSR1CommandBuffer, 0);
         
         VkCommandBufferBeginInfo beginInfo = {};
         beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
         beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmdBuf, &beginInfo);
+        vkBeginCommandBuffer(m_FSR1CommandBuffer, &beginInfo);
         
         // 6. Dispatch FSR1
         VkImage srcVkImage = pl_vulkan_unwrap(m_Vulkan->gpu, m_IntermediateTexture,
@@ -1147,7 +1146,7 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         outputDesc.usage    = FFX_RESOURCE_USAGE_UAV;
         
         FfxFsr1DispatchDescription dispatchParams = {};
-        dispatchParams.commandList      = ffxGetCommandListVK(cmdBuf);
+        dispatchParams.commandList      = ffxGetCommandListVK(m_FSR1CommandBuffer);
         dispatchParams.renderSize       = { (uint32_t)m_DecoderParams.width,
                                      (uint32_t)m_DecoderParams.height };
         dispatchParams.enableSharpening = true;
@@ -1165,7 +1164,7 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
                          "ffxFsr1ContextDispatch() failed: %d", errorCode);
         }
         
-        vkEndCommandBuffer(cmdBuf);
+        vkEndCommandBuffer(m_FSR1CommandBuffer);
         
         // 7. Soumettre le command buffer en attendant m_SemHold, signalant m_SemRelease
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
@@ -1175,7 +1174,7 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         submitInfo.pWaitSemaphores      = &m_SemHold;
         submitInfo.pWaitDstStageMask    = &waitStage;
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &cmdBuf;
+        submitInfo.pCommandBuffers      = &m_FSR1CommandBuffer;
         submitInfo.signalSemaphoreCount = 1;
         submitInfo.pSignalSemaphores    = &m_SemRelease;
         
@@ -1224,10 +1223,7 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                          "FSR1: pl_render_image() output to swapchain failed");
         }
-        
-        goto SubmitFrame;
-        
-        vkDestroyCommandPool(m_Vulkan->device, cmdPool, nullptr);;
+    
         
         goto SubmitFrame;
     }
