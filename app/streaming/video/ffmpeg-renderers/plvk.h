@@ -118,6 +118,8 @@ private:
     VkSemaphore m_SemRelease = VK_NULL_HANDLE;
     pl_tex m_FSR1OutputTexture = nullptr;
     VkQueue m_ComputeQueue = VK_NULL_HANDLE;
+    VkCommandPool m_FSR1CommandPool = VK_NULL_HANDLE;
+    VkCommandBuffer m_FSR1CommandBuffer = VK_NULL_HANDLE;
     int m_DisplayWidth;
     int m_DisplayHeight;
     FfxFsr1Context m_FSR1Context;
