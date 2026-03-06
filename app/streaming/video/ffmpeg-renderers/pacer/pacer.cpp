@@ -137,7 +137,7 @@ int Pacer::vsyncThread(void *context)
 int Pacer::renderThread(void* context)
 {
     Pacer* me = reinterpret_cast<Pacer*>(context);
-    qInfo() << "(bruno) thread";
+
     if (SDL_SetThreadPriority(SDL_THREAD_PRIORITY_HIGH) < 0) {
         SDL_LogWarn(SDL_LOG_CATEGORY_APPLICATION,
                     "Unable to set render thread to high priority: %s",

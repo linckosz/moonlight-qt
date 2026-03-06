@@ -113,6 +113,9 @@ private:
     DECODER_PARAMETERS m_DecoderParams;
     pl_tex m_IntermediateTextures[2] = { nullptr, nullptr };
     int m_IntermediateTextureIndex = 0;
+    pl_tex m_IntermediateTexture = nullptr;
+    VkSemaphore m_SemHold = VK_NULL_HANDLE;
+    VkSemaphore m_SemRelease = VK_NULL_HANDLE;
     pl_tex m_FSR1OutputTexture = nullptr;
     VkQueue m_ComputeQueue = VK_NULL_HANDLE;
     int m_DisplayWidth;

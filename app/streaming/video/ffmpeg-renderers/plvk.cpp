@@ -170,6 +170,25 @@ PlVkRenderer::~PlVkRenderer()
         item = nullptr;
     }
     
+    if (m_IntermediateTexture) {
+        pl_tex_destroy(m_Vulkan->gpu, &m_IntermediateTexture);
+        m_IntermediateTexture = nullptr;
+    }
+    
+    if (m_FSR1OutputTexture) {
+        pl_tex_destroy(m_Vulkan->gpu, &m_FSR1OutputTexture);
+        m_FSR1OutputTexture = nullptr;
+    }
+    
+    if (m_SemHold != VK_NULL_HANDLE) {
+        pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemHold);
+        m_SemHold = VK_NULL_HANDLE;
+    }
+    if (m_SemRelease != VK_NULL_HANDLE) {
+        pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemRelease);
+        m_SemRelease = VK_NULL_HANDLE;
+    }
+    
     pl_renderer_destroy(&m_Renderer);
     pl_swapchain_destroy(&m_Swapchain);
     pl_vulkan_destroy(&m_Vulkan);
@@ -649,6 +668,34 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             m_FfxResourceDesc.flags    = FFX_RESOURCE_FLAGS_NONE;
             m_FfxResourceDesc.usage    = FFX_RESOURCE_USAGE_READ_ONLY;
             
+            pl_vulkan_sem_params semParams = {};
+            semParams.type = VK_SEMAPHORE_TYPE_BINARY;
+            m_SemHold    = pl_vulkan_sem_create(m_Vulkan->gpu, &semParams);
+            m_SemRelease = pl_vulkan_sem_create(m_Vulkan->gpu, &semParams);
+            
+            if (m_SemHold == VK_NULL_HANDLE || m_SemRelease == VK_NULL_HANDLE) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "FSR1: Failed to create semaphores, falling back");
+                pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemHold);
+                pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemRelease);
+                return false;
+            }
+            
+            VkCommandPoolCreateInfo poolInfo = {};
+            poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
+            poolInfo.queueFamilyIndex = m_Vulkan->queue_compute.index;
+            poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // important pour le reset
+            
+            vkCreateCommandPool(m_Vulkan->device, &poolInfo, nullptr, &m_FSR1CommandPool);
+            
+            VkCommandBufferAllocateInfo allocInfo = {};
+            allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
+            allocInfo.commandPool        = m_FSR1CommandPool;
+            allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
+            allocInfo.commandBufferCount = 1;
+            
+            vkAllocateCommandBuffers(m_Vulkan->device, &allocInfo, &m_FSR1CommandBuffer);
+            
             m_FSR1ContextCreated = true;
         }
     }
@@ -990,7 +1037,6 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         
         // Alterner entre les deux textures
         m_IntermediateTextureIndex = (m_IntermediateTextureIndex + 1) % 2;
-        pl_tex& m_IntermediateTexture = m_IntermediateTextures[m_IntermediateTextureIndex];
                 
         // 1. Créer/réutiliser une texture intermédiaire à la résolution source
         if (!m_IntermediateTexture) {
@@ -1051,28 +1097,12 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
             };
             intermediateFrame.repr  = mappedFrame.repr;
             intermediateFrame.color = mappedFrame.color;
-            qInfo() << "intermediateFrame.num_planes: " << intermediateFrame.num_planes;
 
             if (!pl_render_image(m_Renderer, &mappedFrame, &intermediateFrame, &pl_render_fast_params)) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                              "FSR1: pl_render_image() to intermediate failed, falling back");
                 goto DirectRender;
             }
-        }
-        
-        // 3. Créer les semaphores de synchronisation
-        pl_vulkan_sem_params semParams = {};
-        semParams.type = VK_SEMAPHORE_TYPE_BINARY;
-        
-        VkSemaphore semHold = pl_vulkan_sem_create(m_Vulkan->gpu, &semParams);
-        VkSemaphore semRelease = pl_vulkan_sem_create(m_Vulkan->gpu, &semParams);
-        
-        if (semHold == VK_NULL_HANDLE || semRelease == VK_NULL_HANDLE) {
-            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                         "FSR1: Failed to create semaphores, falling back");
-            pl_vulkan_sem_destroy(m_Vulkan->gpu, &semHold);
-            pl_vulkan_sem_destroy(m_Vulkan->gpu, &semRelease);
-            goto DirectRender;
         }
         
         // 4. Hold de la texture intermédiaire — libplacebo → nous        
@@ -1082,44 +1112,19 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         holdParams.tex        = m_IntermediateTexture;
         holdParams.out_layout = &intermediateLayout;
         holdParams.qf         = VK_QUEUE_FAMILY_IGNORED;
-        holdParams.semaphore  = { semHold, 0 };
+        holdParams.semaphore  = { m_SemHold, 0 };
         
         bool holdOk = pl_vulkan_hold_ex(m_Vulkan->gpu, &holdParams);
         if (!holdOk) {
             SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                          "FSR1: pl_vulkan_hold_ex() failed, falling back");
-            pl_vulkan_sem_destroy(m_Vulkan->gpu, &semHold);
-            pl_vulkan_sem_destroy(m_Vulkan->gpu, &semRelease);
             goto DirectRender;
         }
         
-        // 5. Créer et enregistrer notre VkCommandBuffer pour FSR1
-        VkCommandPoolCreateInfo poolInfo = {};
-        poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
-        poolInfo.queueFamilyIndex = m_Vulkan->queue_compute.index;
-        poolInfo.flags            = VK_COMMAND_POOL_CREATE_TRANSIENT_BIT;
-        
-        VkCommandPool cmdPool = VK_NULL_HANDLE;
-        vkCreateCommandPool(m_Vulkan->device, &poolInfo, nullptr, &cmdPool);
-        
-        VkCommandBufferAllocateInfo allocInfo = {};
-        allocInfo.sType              = VK_STRUCTURE_TYPE_COMMAND_BUFFER_ALLOCATE_INFO;
-        allocInfo.commandPool        = cmdPool;
-        allocInfo.level              = VK_COMMAND_BUFFER_LEVEL_PRIMARY;
-        allocInfo.commandBufferCount = 1;
-        
-        VkCommandBuffer cmdBuf = VK_NULL_HANDLE;
-        vkAllocateCommandBuffers(m_Vulkan->device, &allocInfo, &cmdBuf);
-        
-        VkCommandBufferBeginInfo beginInfo = {};
-        beginInfo.sType = VK_STRUCTURE_TYPE_COMMAND_BUFFER_BEGIN_INFO;
-        beginInfo.flags = VK_COMMAND_BUFFER_USAGE_ONE_TIME_SUBMIT_BIT;
-        vkBeginCommandBuffer(cmdBuf, &beginInfo);
-        
         // 6. Dispatch FSR1
-        VkImage srcVkImage = pl_vulkan_unwrap(m_Vulkan->gpu, m_IntermediateTextures[m_IntermediateTextureIndex],
+        VkImage srcVkImage = pl_vulkan_unwrap(m_Vulkan->gpu, m_IntermediateTexture,
                                               nullptr, nullptr);
-        VkImage dstVkImage = pl_vulkan_unwrap(m_Vulkan->gpu, m_SwapchainFrame.fbo,
+        VkImage dstVkImage = pl_vulkan_unwrap(m_Vulkan->gpu, m_FSR1OutputTexture,
                                               nullptr, nullptr);
         
         FfxResourceDescription outputDesc = {};
@@ -1134,7 +1139,7 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         outputDesc.usage    = FFX_RESOURCE_USAGE_UAV;
         
         FfxFsr1DispatchDescription dispatchParams = {};
-        dispatchParams.commandList      = ffxGetCommandListVK(cmdBuf);
+        dispatchParams.commandList      = ffxGetCommandListVK(m_FSR1CommandBuffer);
         dispatchParams.renderSize       = { (uint32_t)m_DecoderParams.width,
                                      (uint32_t)m_DecoderParams.height };
         dispatchParams.enableSharpening = true;
@@ -1152,19 +1157,19 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
                          "ffxFsr1ContextDispatch() failed: %d", errorCode);
         }
         
-        vkEndCommandBuffer(cmdBuf);
+        vkEndCommandBuffer(m_FSR1CommandBuffer);
         
-        // 7. Soumettre le command buffer en attendant semHold, signalant semRelease
+        // 7. Soumettre le command buffer en attendant m_SemHold, signalant m_SemRelease
         VkPipelineStageFlags waitStage = VK_PIPELINE_STAGE_COMPUTE_SHADER_BIT;
         VkSubmitInfo submitInfo = {};
         submitInfo.sType                = VK_STRUCTURE_TYPE_SUBMIT_INFO;
         submitInfo.waitSemaphoreCount   = 1;
-        submitInfo.pWaitSemaphores      = &semHold;
+        submitInfo.pWaitSemaphores      = &m_SemHold;
         submitInfo.pWaitDstStageMask    = &waitStage;
         submitInfo.commandBufferCount   = 1;
-        submitInfo.pCommandBuffers      = &cmdBuf;
+        submitInfo.pCommandBuffers      = &m_FSR1CommandBuffer;
         submitInfo.signalSemaphoreCount = 1;
-        submitInfo.pSignalSemaphores    = &semRelease;
+        submitInfo.pSignalSemaphores    = &m_SemRelease;
         
         
         
@@ -1178,79 +1183,40 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         releaseParams.tex       = m_IntermediateTexture;
         releaseParams.layout    = VK_IMAGE_LAYOUT_SHADER_READ_ONLY_OPTIMAL;
         releaseParams.qf        = VK_QUEUE_FAMILY_IGNORED;
-        releaseParams.semaphore = { semRelease, 0 };
+        releaseParams.semaphore = { m_SemRelease, 0 };
         
         pl_vulkan_release_ex(m_Vulkan->gpu, &releaseParams);
         
         // 9. Cleanup command pool (après que le GPU a fini)
         // Note: à déplacer dans un cleanup différé si besoin de perf
         vkQueueWaitIdle(m_ComputeQueue);
-        vkDestroyCommandPool(m_Vulkan->device, cmdPool, nullptr);
-        pl_vulkan_sem_destroy(m_Vulkan->gpu, &semHold);
-        pl_vulkan_sem_destroy(m_Vulkan->gpu, &semRelease);
         
-        goto SubmitFrame;
+        // Blit FSR1 output → swapchain via libplacebo
+        pl_frame fsr1OutputFrame = {};
+        fsr1OutputFrame.num_planes = 1;
+        fsr1OutputFrame.planes[0].texture = m_FSR1OutputTexture;
+        fsr1OutputFrame.planes[0].components = 4;
+        fsr1OutputFrame.planes[0].component_mapping[0] = PL_CHANNEL_R;
+        fsr1OutputFrame.planes[0].component_mapping[1] = PL_CHANNEL_G;
+        fsr1OutputFrame.planes[0].component_mapping[2] = PL_CHANNEL_B;
+        fsr1OutputFrame.planes[0].component_mapping[3] = PL_CHANNEL_A;
+        fsr1OutputFrame.crop = {
+            0, 0,
+            (float)m_DisplayWidth,
+            (float)m_DisplayHeight
+        };
+        fsr1OutputFrame.repr  = mappedFrame.repr;
+        fsr1OutputFrame.color = mappedFrame.color;
         
-        // // 2. Rendre dans la texture intermédiaire au lieu du swapchain
-        // pl_frame intermediateFrame = {};
-        // intermediateFrame.num_planes = 1;
-        // intermediateFrame.planes[0].texture = m_IntermediateTexture;
-        // intermediateFrame.planes[0].components = 4;
-        // intermediateFrame.planes[0].component_mapping[0] = PL_CHANNEL_R;
-        // intermediateFrame.planes[0].component_mapping[1] = PL_CHANNEL_G;
-        // intermediateFrame.planes[0].component_mapping[2] = PL_CHANNEL_B;
-        // intermediateFrame.planes[0].component_mapping[3] = PL_CHANNEL_A;
-        // intermediateFrame.crop = {
-        //     0, 0,
-        //     (float)m_DecoderParams.textureWidth,
-        //     (float)m_DecoderParams.textureHeight
-        // };
-        // intermediateFrame.repr = mappedFrame.repr;
-        // intermediateFrame.color = mappedFrame.color;
+        // targetFrame pointe vers le swapchain
+        targetFrame.num_overlays = (int)overlays.size();
+        targetFrame.overlays     = overlays.data();
         
-        // if (!pl_render_image(m_Renderer, &mappedFrame, &intermediateFrame, &pl_render_fast_params)) {
-        //     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "pl_render_image() to intermediate failed");
-        //     goto DirectRender;
-        // }
-        
-        // // 3. Dispatch FSR1
-        // // Récupère le VkImage depuis la texture libplacebo
-        // VkImage srcVkImage = (VkImage)pl_vulkan_unwrap(
-        //     m_Vulkan->gpu,
-        //     m_IntermediateTexture,
-        //     nullptr, nullptr
-        //     );
-        // VkImage dstVkImage = (VkImage)pl_vulkan_unwrap(
-        //     m_Vulkan->gpu,
-        //     m_SwapchainFrame.fbo,   // texture swapchain
-        //     nullptr, nullptr
-        //     );
-        
-        // // Obtenir le command buffer libplacebo
-        // // Note: FSR1 a besoin d'un VkCommandBuffer — libplacebo ne l'expose pas directement,
-        // // on utilisera une approche différente (voir ci-dessous)
-        
-        // FfxFsr1DispatchDescription dispatchParams = {};
-        // dispatchParams.commandList    = ffxGetCommandListVK(/* VkCommandBuffer */);
-        // dispatchParams.renderSize     = { (uint32_t)m_DecoderParams.textureWidth,
-        //                              (uint32_t)m_DecoderParams.textureHeight };
-        // dispatchParams.enableSharpening = true;
-        // dispatchParams.sharpness        = 0.5f;
-        // dispatchParams.color  = ffxGetResourceVK(srcVkImage, m_FfxResourceDesc,
-        //                                         L"FSR1_Input",
-        //                                         FFX_RESOURCE_STATE_COMPUTE_READ);
-        // // desc output
-        // FfxResourceDescription outputDesc = m_FfxResourceDesc;
-        // outputDesc.width  = m_DisplayWidth;
-        // outputDesc.height = m_DisplayHeight;
-        // dispatchParams.output = ffxGetResourceVK(dstVkImage, outputDesc,
-        //                                          L"FSR1_Output",
-        //                                          FFX_RESOURCE_STATE_UNORDERED_ACCESS);
-        
-        // FfxErrorCode errorCode = ffxFsr1ContextDispatch(&m_FSR1Context, &dispatchParams);
-        // if (errorCode != FFX_OK) {
-        //     SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "ffxFsr1ContextDispatch() failed: %d", errorCode);
-        // }
+        if (!pl_render_image(m_Renderer, &fsr1OutputFrame, &targetFrame, &pl_render_fast_params)) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                         "FSR1: pl_render_image() output to swapchain failed");
+        }
+    
         
         goto SubmitFrame;
     }
