@@ -42,3 +42,4 @@
 [submodule "third-party/FidelityFX-SDK-v1.1.4"]
 	path = third-party/FidelityFX-SDK-v1.1.4
 	url = https://github.com/GPUOpen-LibrariesAndSDKs/FidelityFX-SDK.git
+	ignore = all
