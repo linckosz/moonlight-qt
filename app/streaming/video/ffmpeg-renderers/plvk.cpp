@@ -591,7 +591,7 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             SDL_GetWindowSize(params->window, (int*)&m_DisplayWidth, (int*)&m_DisplayHeight);
             
             // Rounddown to even number to avoid a crash at texture creation
-            // If the window is odd in a driection, it will crop 1px the backbuffer in that direction
+            // If the window is odd in a direction, it will crop 1px the backbuffer in that direction
             m_DisplayWidth = (m_DisplayWidth + 1) & ~1;
             m_DisplayHeight = (m_DisplayHeight + 1) & ~1;
             
@@ -600,7 +600,7 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             s_VulkanMinorVersion = VK_VERSION_MINOR(props.apiVersion);
             
             const size_t scratchBufferSize = ffxGetScratchMemorySizeVK(
-                m_Vulkan->phys_device,   // VkPhysicalDevice
+                m_Vulkan->phys_device,
                 FFX_FSR1_CONTEXT_COUNT
                 );
             
@@ -623,7 +623,6 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             ffxVkDeviceContext.vkPhysicalDevice = m_Vulkan->phys_device;
             ffxVkDeviceContext.vkDeviceProcAddr = ffxVkGetDeviceProcAddrWrapper;
             
-            // Device Vulkan
             FfxDevice ffxDevice = ffxGetDeviceVK(&ffxVkDeviceContext);
             
             FfxInterface backendInterface = {};
@@ -640,8 +639,7 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
                 return false;
             }
             
-            // Fill out arguments
-            
+            // Create FSR1 Context
             FfxFsr1ContextDescription contextDesc = {};
             contextDesc.flags                = FFX_FSR1_ENABLE_RCAS | FFX_FSR1_RCAS_DENOISE | FFX_FSR1_ENABLE_HIGH_DYNAMIC_RANGE;
             contextDesc.maxRenderSize.width  = params->width;
@@ -651,7 +649,6 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             contextDesc.outputFormat         = m_IsTexture10bits ? FFX_SURFACE_FORMAT_R10G10B10A2_UNORM : FFX_SURFACE_FORMAT_R8G8B8A8_UNORM;
             contextDesc.backendInterface     = backendInterface;
             
-            // Create the FSR1 context
             errorCode = ffxFsr1ContextCreate(&m_FSR1Context, &contextDesc);
             if (errorCode != FFX_OK) {
                 free(m_ScratchBuffer);
@@ -675,7 +672,7 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             
             if (m_SemHold == VK_NULL_HANDLE || m_SemRelease == VK_NULL_HANDLE) {
                 SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                             "FSR1: Failed to create semaphores, falling back");
+                             "FSR1: Failed to create semaphores");
                 pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemHold);
                 pl_vulkan_sem_destroy(m_Vulkan->gpu, &m_SemRelease);
                 return false;
@@ -684,7 +681,7 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             VkCommandPoolCreateInfo poolInfo = {};
             poolInfo.sType            = VK_STRUCTURE_TYPE_COMMAND_POOL_CREATE_INFO;
             poolInfo.queueFamilyIndex = m_Vulkan->queue_compute.index;
-            poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT; // important pour le reset
+            poolInfo.flags            = VK_COMMAND_POOL_CREATE_RESET_COMMAND_BUFFER_BIT;
             
             vkCreateCommandPool(m_Vulkan->device, &poolInfo, nullptr, &m_FSR1CommandPool);
             
@@ -695,6 +692,43 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             allocInfo.commandBufferCount = 1;
             
             vkAllocateCommandBuffers(m_Vulkan->device, &allocInfo, &m_FSR1CommandBuffer);
+            
+            // Create intermediate texture
+            pl_tex_params texParams = {};
+            texParams.w             = m_DecoderParams.width;
+            texParams.h             = m_DecoderParams.height;
+            texParams.format        = m_IsTexture10bits
+                                   ? pl_find_named_fmt(m_Vulkan->gpu, "rgb10a2")
+                                   : pl_find_named_fmt(m_Vulkan->gpu, "rgba8");
+            texParams.renderable    = true;
+            texParams.storable      = true;
+            texParams.sampleable    = true;
+            texParams.host_writable = false;
+            
+            m_IntermediateTexture = pl_tex_create(m_Vulkan->gpu, &texParams);
+            if (!m_IntermediateTexture) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "Failed to create FSR1 intermediate texture");
+                return false;
+            }
+            
+            // Output texture
+            pl_tex_params outTexParams = {};
+            outTexParams.w          = m_DisplayWidth;
+            outTexParams.h          = m_DisplayHeight;
+            outTexParams.format     = m_IsTexture10bits
+                                      ? pl_find_named_fmt(m_Vulkan->gpu, "rgb10a2")
+                                      : pl_find_named_fmt(m_Vulkan->gpu, "rgba8");
+            outTexParams.renderable = true;
+            outTexParams.storable   = true;
+            outTexParams.sampleable = true;
+            
+            m_FSR1OutputTexture = pl_tex_create(m_Vulkan->gpu, &outTexParams);
+            if (!m_FSR1OutputTexture) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
+                             "FSR1: Failed to create output texture");
+                return false;
+            }
             
             m_FSR1ContextCreated = true;
         }
@@ -1035,50 +1069,8 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
     
     if (m_FSR1ContextCreated) {
         
-        // Alterner entre les deux textures
-        m_IntermediateTextureIndex = (m_IntermediateTextureIndex + 1) % 2;
-                
-        // 1. Créer/réutiliser une texture intermédiaire à la résolution source
-        if (!m_IntermediateTexture) {
-            pl_tex_params texParams = {};
-            texParams.w             = m_DecoderParams.width;
-            texParams.h             = m_DecoderParams.height;
-            texParams.format        = m_IsTexture10bits
-                                   ? pl_find_named_fmt(m_Vulkan->gpu, "rgb10a2")
-                                   : pl_find_named_fmt(m_Vulkan->gpu, "rgba8");
-            texParams.renderable    = true;
-            texParams.storable      = true;  // FSR1 écrit en compute
-            texParams.sampleable    = true;
-            texParams.host_writable = false;
-            
-            m_IntermediateTexture = pl_tex_create(m_Vulkan->gpu, &texParams);
-            if (!m_IntermediateTexture) {
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                             "Failed to create FSR1 intermediate texture");
-                // fallback sans FSR1
-                goto DirectRender;
-            }
-        }
+     
         
-        // Créer la texture output FSR1 (résolution display)
-        if (!m_FSR1OutputTexture) {
-            pl_tex_params outTexParams = {};
-            outTexParams.w          = m_DisplayWidth;
-            outTexParams.h          = m_DisplayHeight;
-            outTexParams.format     = m_IsTexture10bits
-                                      ? pl_find_named_fmt(m_Vulkan->gpu, "rgb10a2")
-                                      : pl_find_named_fmt(m_Vulkan->gpu, "rgba8");
-            outTexParams.renderable = true;
-            outTexParams.storable   = true;
-            outTexParams.sampleable = true;
-            
-            m_FSR1OutputTexture = pl_tex_create(m_Vulkan->gpu, &outTexParams);
-            if (!m_FSR1OutputTexture) {
-                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
-                             "FSR1: Failed to create output texture");
-                goto DirectRender;
-            }
-        }
         
         // 2. Rendre dans la texture intermédiaire
         {

@@ -2437,7 +2437,7 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         SDL_GetWindowSize(m_DecoderParams.window, (int*)&m_DisplayWidth, (int*)&m_DisplayHeight);
 
         // Rounddown to even number to avoid a crash at texture creation
-        // If the window is odd in a driection, it will crop 1px the backbuffer in that direction
+        // If the window is odd in a direction, it will crop 1px the backbuffer in that direction
         m_DisplayWidth = (m_DisplayWidth + 1) & ~1;
         m_DisplayHeight = (m_DisplayHeight + 1) & ~1;
 
