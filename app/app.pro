@@ -420,7 +420,7 @@ win32:!winrt {
     INCLUDEPATH += $$PWD/../third-party/RTX_Video_SDK/include
 }
 
-win32:!winrt | unix:!macx {
+win32:!winrt {
     message(AMD Upscaling technologies)
 
     SOURCES += \
@@ -434,54 +434,54 @@ win32:!winrt | unix:!macx {
         $$PWD/../third-party/FidelityFX-FSR/ffx-fsr
 }
 
-win32:!winrt {
-    message(AMD FidelityFX SDK)
+# win32:!winrt {
+#     message(AMD FidelityFX SDK)
     
-    OS_ARCHI = x64
-    contains(QT_ARCH, arm64) {
-        OS_ARCHI = arm64
-    }
+#     OS_ARCHI = x64
+#     contains(QT_ARCH, arm64) {
+#         OS_ARCHI = arm64
+#     }
     
-    # LIBS += -L$$PWD/../third-party/FidelityFX-SDK-v1.1.4/PrebuiltSignedDLL -lamd_fidelityfx_dx12
+#     # LIBS += -L$$PWD/../third-party/FidelityFX-SDK-v1.1.4/PrebuiltSignedDLL -lamd_fidelityfx_dx12
     
-    LIBS += -L$$PWD/../third-party/ffx_sdk
+#     LIBS += -L$$PWD/../third-party/ffx_sdk
     
-    CONFIG(debug, debug|release) {
-        # Debug
-        LIBS += -lffx_fsr1_$${OS_ARCHI}d
-    }
+#     CONFIG(debug, debug|release) {
+#         # Debug
+#         LIBS += -lffx_fsr1_$${OS_ARCHI}d
+#     }
     
-    CONFIG(release, debug|release) {
-        # Release
-        LIBS += -lffx_fsr1_$${OS_ARCHI}
-    }
+#     CONFIG(release, debug|release) {
+#         # Release
+#         LIBS += -lffx_fsr1_$${OS_ARCHI}
+#     }
 
-    # # DX12
-    # CONFIG(debug, debug|release) {
-    #     # Debug
-    #     LIBS += -lffx_backend_dx12_$${OS_ARCHI}d
-    # }
+#     # # DX12
+#     # CONFIG(debug, debug|release) {
+#     #     # Debug
+#     #     LIBS += -lffx_backend_dx12_$${OS_ARCHI}d
+#     # }
     
-    # CONFIG(release, debug|release) {
-    #     # Release
-    #     LIBS += -lffx_backend_dx12_$${OS_ARCHI}
-    # }
+#     # CONFIG(release, debug|release) {
+#     #     # Release
+#     #     LIBS += -lffx_backend_dx12_$${OS_ARCHI}
+#     # }
     
-    # Vulkan fallback
-    CONFIG(debug, debug|release) {
-        # Debug
-        LIBS += -lffx_backend_vk_x64d
-    }
+#     # Vulkan fallback
+#     CONFIG(debug, debug|release) {
+#         # Debug
+#         LIBS += -lffx_backend_vk_x64d
+#     }
     
-    CONFIG(release, debug|release) {
-        # Release
-        LIBS += -lffx_backend_vk_x64
-    }
+#     CONFIG(release, debug|release) {
+#         # Release
+#         LIBS += -lffx_backend_vk_x64
+#     }
     
-    LIBS += $$(VULKAN_SDK)/Lib/vulkan-1.lib
+#     LIBS += $$(VULKAN_SDK)/Lib/vulkan-1.lib
     
-    INCLUDEPATH += $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/include
-}
+#     INCLUDEPATH += $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/include
+# }
 
 unix:!macx {
     message(AMD FidelityFX SDK)
