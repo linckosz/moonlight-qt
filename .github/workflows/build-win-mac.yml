@@ -35,18 +35,18 @@ jobs:
           fetch-depth: 1
           
       - name: Install Vulkan SDK
-              if: runner.os == 'Windows'
-              shell: pwsh
-              run: |
-                # Get latest Vulkan version
-                $latestUrl = "https://vulkan.lunarg.com/sdk/latest/windows.txt"
-                $version = (Invoke-WebRequest -Uri $latestUrl).Content.Trim()
-                $url = "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanSDK-$version-Installer.exe"
-                Write-Host "Installing Vulkan SDK $version"
-                Invoke-WebRequest -Uri $url -OutFile VulkanSDK.exe
-                Start-Process -FilePath VulkanSDK.exe -Args "--accept-licenses --default-answer --confirm-command install" -Wait
-                echo "VULKAN_SDK=C:\VulkanSDK\$version" | Out-File -FilePath $env:GITHUB_ENV -Append
-                echo "C:\VulkanSDK\$version\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          # Get latest Vulkan version
+          $latestUrl = "https://vulkan.lunarg.com/sdk/latest/windows.txt"
+          $version = (Invoke-WebRequest -Uri $latestUrl).Content.Trim()
+          $url = "https://sdk.lunarg.com/sdk/download/$version/windows/VulkanSDK-$version-Installer.exe"
+          Write-Host "Installing Vulkan SDK $version"
+          Invoke-WebRequest -Uri $url -OutFile VulkanSDK.exe
+          Start-Process -FilePath VulkanSDK.exe -Args "--accept-licenses --default-answer --confirm-command install" -Wait
+          echo "VULKAN_SDK=C:\VulkanSDK\$version" | Out-File -FilePath $env:GITHUB_ENV -Append
+          echo "C:\VulkanSDK\$version\Bin" | Out-File -FilePath $env:GITHUB_PATH -Append
 
       - name: Install create-dmg (macOS)
         if: runner.os == 'macOS'
