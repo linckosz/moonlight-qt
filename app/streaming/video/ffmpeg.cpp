@@ -1045,21 +1045,21 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
         //     return new D3D12VARenderer(pass);
 #endif
 #ifdef Q_OS_DARWIN
-        case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
-            // Prefer the Metal renderer if hardware is compatible
-            return VTMetalRendererFactory::createRenderer(true);
+        // case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
+        //     // Prefer the Metal renderer if hardware is compatible
+        //     return VTMetalRendererFactory::createRenderer(true);
 #endif
 #ifdef HAVE_LIBVA
-        case AV_HWDEVICE_TYPE_VAAPI:
-            return new VAAPIRenderer(pass);
+        // case AV_HWDEVICE_TYPE_VAAPI:
+        //     return new VAAPIRenderer(pass);
 #endif
 #ifdef HAVE_LIBVDPAU
-        case AV_HWDEVICE_TYPE_VDPAU:
-            return new VDPAURenderer(pass);
+        // case AV_HWDEVICE_TYPE_VDPAU:
+        //     return new VDPAURenderer(pass);
 #endif
 #ifdef HAVE_DRM
-        case AV_HWDEVICE_TYPE_DRM:
-            return new DrmRenderer(hwDecodeCfg->device_type);
+        // case AV_HWDEVICE_TYPE_DRM:
+        //     return new DrmRenderer(hwDecodeCfg->device_type);
 #endif
 // #ifdef HAVE_LIBPLACEBO_VULKAN
 //         case AV_HWDEVICE_TYPE_VULKAN:
@@ -1082,16 +1082,16 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
     else if (pass == 1) {
         switch (hwDecodeCfg->device_type) {
 #ifdef HAVE_CUDA
-        case AV_HWDEVICE_TYPE_CUDA:
-            // CUDA should only be used to cover the NVIDIA+Wayland case
-            return new CUDARenderer();
+        // case AV_HWDEVICE_TYPE_CUDA:
+        //     // CUDA should only be used to cover the NVIDIA+Wayland case
+        //     return new CUDARenderer();
 #endif
 #ifdef Q_OS_WIN32
         // This gives us another shot if D3D11VA/D3D12VA failed in the first pass.
         // Since DXVA2 is in the hwaccel list first, we'll first try to fall back
         // to that before giving D3D11VA/D3D12VA another try as a last resort.
-        case AV_HWDEVICE_TYPE_DXVA2:
-            return new DXVA2Renderer(pass);
+        // case AV_HWDEVICE_TYPE_DXVA2:
+        //     return new DXVA2Renderer(pass);
         // case AV_HWDEVICE_TYPE_D3D11VA:
         //     if (!params->enableVideoEnhancement){
         //         return new D3D11VARenderer(pass);
@@ -1102,17 +1102,17 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
         //     return new D3D12VARenderer(pass);
 #endif
 #ifdef Q_OS_DARWIN
-        case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
-            // Use the older AVSampleBufferDisplayLayer if Metal cannot be used
-            return VTRendererFactory::createRenderer();
+        // case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
+        //     // Use the older AVSampleBufferDisplayLayer if Metal cannot be used
+        //     return VTRendererFactory::createRenderer();
 #endif
 #ifdef HAVE_LIBVA
-        case AV_HWDEVICE_TYPE_VAAPI:
-            return new VAAPIRenderer(pass);
+        // case AV_HWDEVICE_TYPE_VAAPI:
+        //     return new VAAPIRenderer(pass);
 #endif
 #ifdef HAVE_LIBVDPAU
-        case AV_HWDEVICE_TYPE_VDPAU:
-            return new VDPAURenderer(pass);
+        // case AV_HWDEVICE_TYPE_VDPAU:
+        //     return new VDPAURenderer(pass);
 #endif
         default:
             return nullptr;
