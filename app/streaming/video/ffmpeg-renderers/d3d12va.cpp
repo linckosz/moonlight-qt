@@ -1869,7 +1869,7 @@ void D3D12VARenderer::TimerInfo(const char* comment, bool start)
     if(!m_TimerInfo)
         return;
     
-    qInfo() << "Timer Info: " << QString::number(m_Timer.nsecsElapsed() / 1'000'000.0, 'f', 3).toUtf8().constData() << comment;
+    qInfo() << "Timer Info: " << QString::number(m_Timer.nsecsElapsed() / 1'000'000.0, 'f', 3).toUtf8().constData() << "ms" << comment;
     
     if(start)
         m_Timer.start();
@@ -2431,7 +2431,7 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         SDL_GetWindowSize(m_DecoderParams.window, (int*)&m_DisplayWidth, (int*)&m_DisplayHeight);
 
         // Rounddown to even number to avoid a crash at texture creation
-        // If the window is odd in a driection, it will crop 1px the backbuffer in that direction
+        // If the window is odd in a direction, it will crop 1px the backbuffer in that direction
         m_DisplayWidth = (m_DisplayWidth + 1) & ~1;
         m_DisplayHeight = (m_DisplayHeight + 1) & ~1;
 
@@ -4490,7 +4490,7 @@ void D3D12VARenderer::renderFrame(AVFrame* frame)
     WaitForSingleObjectEx(m_FrameLatencyWaitableObject, 1000, true);
 
     m_Timer.start();
-    TimerInfo("ms -----------------------------------------------", true);
+    TimerInfo("-----------------------------------------------", true);
 
     AVD3D12VAFrame* f = nullptr;
     UINT backBufferIndex = m_SwapChain->GetCurrentBackBufferIndex();
@@ -4551,7 +4551,7 @@ void D3D12VARenderer::renderFrame(AVFrame* frame)
     
 RenderStep1:
     
-    TimerInfo("ms (FFmpeg Frame)", true);
+    TimerInfo("(FFmpeg Frame)", true);
 
     // DebugExportToPNG(frameTexture, D3D12_RESOURCE_STATE_COMMON, "frameTexture.png");
 
@@ -4611,7 +4611,7 @@ RenderStep1:
 
         waitForVideoProcess();
 
-        TimerInfo("ms (VP Upscale YUV + Convert YUV)", true);
+        TimerInfo("(VP Upscale YUV + Convert YUV)", true);
 
         if(m_SkipRenderStep2){
             goto Draw;
@@ -4675,7 +4675,7 @@ RenderStep1:
 
         waitForVideoProcess();
 
-        TimerInfo("ms (VP Convert YUV)", true);
+        TimerInfo("(VP Convert YUV)", true);
 
         goto RenderStep2;
     }
@@ -4715,7 +4715,7 @@ RenderStep1:
             resetGraphicsCommand = false;
         }
 
-        TimerInfo("ms (Shader Convert YUV)", true);
+        TimerInfo("(Shader Convert YUV)", true);
 
         goto RenderStep2;
     }
@@ -4749,7 +4749,7 @@ RenderStep1:
             detachRGBTextureUpscaled = true;
         }
 
-        TimerInfo("ms (AMF Upscale YUV -> AMF Convert RGB)", true);
+        TimerInfo("(AMF Upscale YUV -> AMF Convert RGB)", true);
 
         if(m_SkipRenderStep2){
             goto Draw;
@@ -4774,7 +4774,7 @@ RenderStep1:
         m_YUVTextureUpscaled.Attach(amfTexture);
         detachYUVTextureUpscaled = true;
 
-        TimerInfo("ms (AMF Upscale YUV)", true);
+        TimerInfo("(AMF Upscale YUV)", true);
 
         goto RenderStep2;
     }
@@ -4795,7 +4795,7 @@ RenderStep1:
         m_RGBTexture.Attach(amfTexture);
         detachRGBTexture = true;
 
-        TimerInfo("ms (AMF Convert YUV)", true);
+        TimerInfo("(AMF Convert YUV)", true);
 
         goto RenderStep2;
     }
@@ -5077,7 +5077,7 @@ RenderStep1:
             }
         }
         
-        TimerInfo("ms (Intel VPL Convert YUV)", true);
+        TimerInfo("(Intel VPL Convert YUV)", true);
         
         goto RenderStep2;
         
@@ -5150,7 +5150,7 @@ RenderStep2:
 
         waitForVideoProcess();
 
-        TimerInfo("ms (VP Upscale RGB)", true);
+        TimerInfo("(VP Upscale RGB)", true);
 
         goto Draw;
     }
@@ -5223,7 +5223,7 @@ RenderStep2:
             }
         }
         
-        TimerInfo("ms (VSR Upscale RGB)", true);
+        TimerInfo("(VSR Upscale RGB)", true);
         
         goto Draw;
     }
@@ -5243,7 +5243,7 @@ RenderStep2:
         m_OutputTexture.Attach(amfTexture);
         detachOutputTexture = true;
 
-        TimerInfo("ms (AMF Upscale RGB)", true);
+        TimerInfo("(AMF Upscale RGB)", true);
 
         goto Draw;
     }
@@ -5263,7 +5263,7 @@ RenderStep2:
         m_OutputTexture.Attach(amfTexture);
         detachOutputTexture = true;
 
-        TimerInfo("ms (AMF Convert YUV)", true);
+        TimerInfo("(AMF Convert YUV)", true);
 
         goto Draw;
     }
@@ -5283,7 +5283,7 @@ RenderStep2:
             D3D12_RESOURCE_STATE_COMMON
             );
 
-        TimerInfo("ms (Shader Convert YUV)", true);
+        TimerInfo("(Shader Convert YUV)", true);
 
         goto Draw;
     }
@@ -5303,7 +5303,7 @@ RenderStep2:
             D3D12_RESOURCE_STATE_COMMON
             );
 
-        TimerInfo("ms (Shader Upscale RGB)", true);
+        TimerInfo("(Shader Upscale RGB)", true);
 
         goto Draw;
     }
@@ -5323,7 +5323,7 @@ RenderStep2:
             D3D12_RESOURCE_STATE_COMMON
             );
 
-        TimerInfo("ms (Shader Sharpen RGB)", true);
+        TimerInfo("(Shader Sharpen RGB)", true);
 
         goto Draw;
     }
@@ -5424,7 +5424,7 @@ Draw:
             m_OverlaySkip = false;
         }
 
-        TimerInfo("ms (VP Copy m_OutputTexture -> m_BackBuffers)", true);
+        TimerInfo("(VP Copy m_OutputTexture -> m_BackBuffers)", true);
     }
     
 Present:
@@ -5434,7 +5434,7 @@ Present:
         // When vSync is enabled, we do Present(0, 0) instead of (1, 0) to leverage VRR capability of the screen if any.        
         m_hr = m_SwapChain->Present(0, m_AllowTearing ? DXGI_PRESENT_ALLOW_TEARING : 0);
         
-        TimerInfo("ms (Present)", true);
+        TimerInfo("(Present)", true);
 
         // DebugExportToPNG(m_BackBuffers[backBufferIndex].Get(), D3D12_RESOURCE_STATE_PRESENT, "m_BackBuffers.png");
 
@@ -5485,7 +5485,7 @@ Present:
             m_GraphicsCommandList->Reset(m_GraphicsCommandAllocator.Get(), nullptr);
         }
 
-        TimerInfo("ms (Reinitialization)", true);
+        TimerInfo("(Reinitialization)", true);
     }
     
     SDL_AtomicUnlock(&m_OverlayLock);

@@ -852,9 +852,9 @@ Flickable {
                     hoverEnabled: true
                     text: qsTr("Video Super Resolution")
                     font.pointSize:  12
-                    enabled: true
+                    enabled: SystemProperties.isVideoEnhancementAvailable()
                     checked: {
-                        return StreamingPreferences.videoEnhancing
+                        return SystemProperties.isVideoEnhancementAvailable() && StreamingPreferences.videoEnhancing
                     }
                     property bool keepValue: checked;
                     
@@ -878,6 +878,14 @@ Flickable {
                     ToolTip.visible: hovered
                     ToolTip.text:
                         qsTr("Leverages hardware acceleration to improve picture clarity by upscaling when stream resolution is below your display resolution.")
+
+                    Component.onCompleted: {
+                        if (!SystemProperties.isVideoEnhancementAvailable()){
+                            text = qsTr("Video Super Resolution (Not supported by your system)")
+                            enabled = false;
+                            checked = false;
+                        }
+                    }
                 }
 
                 // Note: Do not make the algorythm selector available to the final user

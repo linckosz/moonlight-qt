@@ -6,6 +6,7 @@
 
 #include "streaming/session.h"
 #include "streaming/streamutils.h"
+#include "streaming/video/videoenhancement.h"
 
 #ifdef Q_OS_WIN32
 #define WIN32_LEAN_AND_MEAN
@@ -286,4 +287,16 @@ bool SystemProperties::isVideoEnhancementSwitchable()
 #else
     return false;
 #endif
+}
+
+/**
+ * \brief Inform if the GPU is capable of Video enhancement
+ *
+ * Check if either Video Super-Resolution features can be used by the GPU.
+ *
+ * \return bool Returns true if the GPU is capable
+ */
+bool SystemProperties::isVideoEnhancementAvailable()
+{
+    return VideoEnhancement::getInstance().isAvailable();
 }

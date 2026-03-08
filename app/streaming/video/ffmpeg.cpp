@@ -1018,6 +1018,29 @@ IFFmpegRenderer* FFmpegVideoDecoder::createHwAccelRenderer(const AVCodecHWConfig
         return nullptr;
     }
 
+    // For Upscaling, only allow some decoders
+    if (params->enableVideoEnhancement) {
+        switch (hwDecodeCfg->device_type) {
+#ifdef Q_OS_WIN32
+        case AV_HWDEVICE_TYPE_D3D11VA:
+            break;
+        case AV_HWDEVICE_TYPE_D3D12VA:
+            break;
+#endif
+#ifdef Q_OS_DARWIN
+        case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
+            break;
+#endif
+#ifdef HAVE_LIBPLACEBO_VULKAN
+        case AV_HWDEVICE_TYPE_VULKAN:
+            break;
+#endif
+        default:
+            return nullptr;
+            break;
+        }
+    }
+
     // Keep track of the Device Type selected
     VideoEnhancement::getInstance().setDeviceType(hwDecodeCfg->device_type);
     
@@ -1559,6 +1582,42 @@ bool FFmpegVideoDecoder::tryInitializeHwAccelDecoder(PDECODER_PARAMETERS params,
         // Skip hardware decoders that have returned a terminal failure status
         if (terminallyFailedHardwareDecoders.contains(decoder)) {
             continue;
+        }
+
+        // Check if any hwaccel hardware has Video Super Resolution available
+        if (!VideoEnhancement::getInstance().isAvailable()) {
+            VideoEnhancement::getInstance().setAvailable(false);
+            for (int i = 0;; i++) {
+                const AVCodecHWConfig *config = avcodec_get_hw_config(decoder, i);
+                if (!config) {
+                    // No remaining hwaccel options
+                    break;
+                }
+
+                switch (config->device_type) {
+#ifdef Q_OS_WIN32
+                case AV_HWDEVICE_TYPE_D3D11VA:
+                    VideoEnhancement::getInstance().setAvailable(true);
+                    break;
+                case AV_HWDEVICE_TYPE_D3D12VA:
+                    VideoEnhancement::getInstance().setAvailable(true);
+                    break;
+#endif
+#ifdef Q_OS_DARWIN
+                case AV_HWDEVICE_TYPE_VIDEOTOOLBOX:
+                    VideoEnhancement::getInstance().setAvailable(true);
+                    break;
+#endif
+#ifdef HAVE_LIBPLACEBO_VULKAN
+                case AV_HWDEVICE_TYPE_VULKAN:
+                    VideoEnhancement::getInstance().setAvailable(true);
+                    break;
+#endif
+                default:
+                    break;
+                }
+
+            }
         }
 
         // Look for the first matching hwaccel hardware decoder

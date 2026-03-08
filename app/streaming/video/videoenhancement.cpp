@@ -27,6 +27,7 @@ VideoEnhancement &VideoEnhancement::getInstance(){
 /**
  * \brief Set the Adapter Index
  *
+ * \param int adapterIndex
  * \return void
  */
 void VideoEnhancement::setAdapterIndex(int adapterIndex){
@@ -45,6 +46,7 @@ int VideoEnhancement::getAdapterIndex(){
 /**
  * \brief Set Vendor ID
  *
+ * \param int vendorId
  * \return void
  */
 void VideoEnhancement::setVendorID(int vendorId){
@@ -63,7 +65,7 @@ bool VideoEnhancement::isVendorAMD(){
 /**
  * \brief Check if the vendor is AMD
  *
- * \param int vendorId Vendor ID
+ * \param int vendorId
  * \return bool Returns true is the vendor is AMD
  */
 bool VideoEnhancement::isVendorAMD(int vendorId){
@@ -82,7 +84,7 @@ bool VideoEnhancement::isVendorIntel(){
 /**
  * \brief Check if the vendor is Intel
  *
- * \param int vendorId Vendor ID
+ * \param int vendorId
  * \return bool Returns true is the vendor is Intel
  */
 bool VideoEnhancement::isVendorIntel(int vendorId){
@@ -101,7 +103,7 @@ bool VideoEnhancement::isVendorNVIDIA(){
 /**
  * \brief Check if the vendor is NVIDIA
  *
- * \param int vendorId Vendor ID
+ * \param int vendorId
  * \return bool Returns true is the vendor is NVIDIA
  */
 bool VideoEnhancement::isVendorNVIDIA(int vendorId){
@@ -109,10 +111,34 @@ bool VideoEnhancement::isVendorNVIDIA(int vendorId){
 }
 
 /**
+ * \brief Set the Video Super-Resolution availability
+ *
+ * Keep track if the adapter has Video Super-Resolution available
+ *
+ * \param bool available, at False the feature is uncheckable in the setting
+ * \return void
+ */
+void VideoEnhancement::setAvailable(bool available){
+    m_Available = available;
+}
+
+/**
+ * \brief Check the Video Super-Resolution availability
+ *
+ * Check if the GPU adapter has Video Super-Resolution available
+ *
+ * \return bool Returns true if the VSR feature is available
+ */
+bool VideoEnhancement::isAvailable(){
+    return m_Available;
+}
+
+/**
  * \brief Set the Video Super-Resolution capability
  *
- * Keep track if the adapter is capable of Video Super-Resolution
+ * Keep track if the adapter is capable of the Driver Video Super-Resolution
  *
+ * \param bool capable
  * \return void
  */
 void VideoEnhancement::setVSRcapable(bool capable){
@@ -122,9 +148,9 @@ void VideoEnhancement::setVSRcapable(bool capable){
 /**
  * \brief Check the Video Super-Resolution capability
  *
- * Check if the GPU used is capable of providing VSR feature
+ * Check if the GPU used is capable of providing Driver VSR feature
  *
- * \return bool Returns true if the VSR feature is available
+ * \return bool Returns true if the Driver VSR feature is available
  */
 bool VideoEnhancement::isVSRcapable(){
     return m_VSRcapable;
@@ -133,8 +159,9 @@ bool VideoEnhancement::isVSRcapable(){
 /**
  * \brief Set the HDR capability
  *
- * Keep track if the adapter is capable of SDR to HDR
+ * Keep track if the adapter is capable of SDR to HDR by the Driver
  *
+ * \param bool capable
  * \return void
  */
 void VideoEnhancement::setHDRcapable(bool capable){
@@ -144,7 +171,7 @@ void VideoEnhancement::setHDRcapable(bool capable){
 /**
  * \brief Check the HDR capability
  *
- * Check if the GPU used is capable of providing SDR to HDR feature
+ * Check if the GPU used is capable of providing the Driver SDR to HDR feature
  *
  * \return bool Returns true if the HDR feature is available
  */
@@ -168,7 +195,7 @@ bool VideoEnhancement::isVideoEnhancementEnabled(){
  * \return bool Returns true if the Video Enhancement feature is available
  */
 bool VideoEnhancement::enableVideoEnhancement(bool activate){
-    m_Enabled = (m_VSRcapable || m_HDRcapable) && activate;
+    m_Enabled = m_Available && activate;
     return m_Enabled;
 }
 
@@ -177,6 +204,7 @@ bool VideoEnhancement::enableVideoEnhancement(bool activate){
  *
  * Set the value of the ratio which must be TextureOutputHeight/TextureInputHeight.
  *
+ * \param float ratio
  * \return void
  */
 void VideoEnhancement::setRatio(float ratio){
@@ -199,6 +227,7 @@ float VideoEnhancement::getRatio(){
  *
  * Set the value of the algorythm used to do the upscaling.
  *
+ * \param std::string algo
  * \return void
  */
 void VideoEnhancement::setAlgo(std::string algo){
@@ -221,6 +250,7 @@ std::string VideoEnhancement::getAlgo(){
  *
  * Set the information that the GPU is integrated to the CPU (iGPU), or a discrete GPU
  *
+ * \param bool isIntegratedGPU
  * \return void
  */
 void VideoEnhancement::setIntegratedGPU(bool isIntegratedGPU){
@@ -241,7 +271,7 @@ bool VideoEnhancement::isIntegratedGPU(){
  *
  * Keep the information about the Device Type used
  *
- * \param int equivant to AVHWDeviceType
+ * \param int deviceType
  * \return void
  */
 void VideoEnhancement::setDeviceType(int deviceType){

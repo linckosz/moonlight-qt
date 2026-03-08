@@ -420,18 +420,19 @@ win32:!winrt {
     INCLUDEPATH += $$PWD/../third-party/RTX_Video_SDK/include
 }
 
-win32:!winrt | unix:!macx {
+win32:!winrt {
     message(AMD Upscaling technologies)
 
     SOURCES += \
         ../third-party/AMF/amf/public/common/AMFFactory.cpp \
         ../third-party/AMF/amf/public/common/AMFSTL.cpp \
         ../third-party/AMF/amf/public/common/Thread.cpp \
-        ../third-party/AMF/amf/public/common/TraceAdapter.cpp
+        ../third-party/AMF/amf/public/common/TraceAdapter.cpp \
+        ../third-party/AMF/amf/public/common/Windows/ThreadWindows.cpp
 
     INCLUDEPATH +=  \
         $$PWD/../third-party/AMF/amf \
-        $$PWD/../third-party/FidelityFX-FSR/ffx-fsr
+        $$PWD/shaders/enhancer/AMD
 }
 
 win32:!winrt {
@@ -478,16 +479,7 @@ win32:!winrt {
         DEFINES += HAVE_INTEL_VPL
     }
 }
-
 win32:!winrt {
-    SOURCES += ../third-party/AMF/amf/public/common/Windows/ThreadWindows.cpp
-}
-unix:!macx {
-    LIBS += -ldl
-    
-    SOURCES += ../third-party/AMF/amf/public/common/Linux/ThreadLinux.cpp
-}
-win32:!winrt | unix:!macx {
     message(NVIDIA Image Scaling)
 
     INCLUDEPATH += $$PWD/../third-party/NVIDIAImageScaling/NIS

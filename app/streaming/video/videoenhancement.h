@@ -12,7 +12,8 @@ private:
 
     static VideoEnhancement* instance;
 
-    // By default we make it visible
+    // By default we make it unavailable
+    bool m_Available = false;
     bool m_Enabled = false;
     bool m_VSRcapable = false;
     bool m_HDRcapable = false;
@@ -46,6 +47,8 @@ public:
     bool isVendorIntel(int vendorId);
     bool isVendorNVIDIA();
     bool isVendorNVIDIA(int vendorId);
+    void setAvailable(bool available);
+    bool isAvailable();
     void setVSRcapable(bool capable);
     bool isVSRcapable();
     void setHDRcapable(bool capable);
