@@ -378,6 +378,10 @@ libplacebo {
                 $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/src/shared \
                 $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/src/backends/shared \
                 $$PWD/../third-party/FidelityFX-SDK-v1.1.4/sdk/src/components
+                
+            unix {
+                QMAKE_CXXFLAGS += -Wno-deprecated-declarations
+            }
         }
     }
 }
