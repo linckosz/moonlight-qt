@@ -25,6 +25,7 @@ private:
     const int VENDOR_ID_AMD = 0x1002;
     const int VENDOR_ID_INTEL = 0x8086;
     const int VENDOR_ID_NVIDIA = 0x10DE;
+    const int VENDOR_ID_QUALCOMM = 0x17CB;
 
     // GPU information
     int m_VendorId = 0;
@@ -42,11 +43,9 @@ public:
     static VideoEnhancement& getInstance();
     void setVendorID(int vendorId);
     bool isVendorAMD();
-    bool isVendorAMD(int vendorId);
     bool isVendorIntel();
-    bool isVendorIntel(int vendorId);
     bool isVendorNVIDIA();
-    bool isVendorNVIDIA(int vendorId);
+    bool isVendorQualcomm();
     void setAvailable(bool available);
     bool isAvailable();
     void setVSRcapable(bool capable);

@@ -32,6 +32,7 @@ public:
         NIS,
         NIS_SHARPENER,
         FSR1,
+        SGSR1,
         RCAS,
         COPY
     };
@@ -47,10 +48,8 @@ public:
         VideoEnhancement* videoEnhancement,
         ID3D12Resource* textureIn,
         ID3D12Resource* textureOut,
-        int outWidth,
-        int outHeight,
-        int offsetTop,
-        int offsetLeft,
+        D3D12_VIEWPORT viewport,
+        D3D12_RECT scissorRect,
         Enhancer enhancer,
         DXGI_COLOR_SPACE_TYPE colorSpace
         );
@@ -80,6 +79,16 @@ private:
     FSR1Constants m_RCASConstants;
     ComPtr<ID3D12PipelineState> m_PipelineStateEASU;
     ComPtr<ID3D12PipelineState> m_PipelineStateRCAS;
+    
+    // SGSR1
+    struct SGSRConstants {
+        float viewportX;   // 1.0f / inputWidth
+        float viewportY;   // 1.0f / inputHeight
+        float viewportZ;   // inputWidth
+        float viewportW;   // inputHeight
+    };
+    SGSRConstants m_SGSRConstants;
+    ComPtr<ID3D12Resource> m_SGSRConstantBuffer;
 
     struct alignas(16) RootConsts
     {
@@ -146,8 +155,8 @@ private:
     int m_InHeight;
     int m_OutWidth;
     int m_OutHeight;
-    int m_OffsetTop;
-    int m_OffsetLeft;
+    D3D12_VIEWPORT m_Viewport = {};
+    D3D12_RECT m_ScissorRect = {};
     Enhancer m_Enhancer = Enhancer::NONE;
     DXGI_COLOR_SPACE_TYPE m_ColorSpace;
 
@@ -178,9 +187,6 @@ private:
 
     bool m_IsUpscaling = true;
     bool m_IsUsingShader = true;
-
-    D3D12_VIEWPORT m_Viewport;
-    D3D12_RECT m_ScissorRect;
 
     // NVIDIA Image Scaling
     bool m_NISHalfprecision = true; // true: 16-bit (half precision) / false: 32-bit (full precision)
@@ -218,12 +224,14 @@ private:
     bool initializeCONVERT_PS();
     bool initializeNIS(bool isUpscaling = true);
     bool initializeFSR1();
+    bool initializeSGSR1();
     bool initializeRCAS();
     bool initializeCOPY();
 
     bool applyCONVERT_PS();
     bool applyNIS();
     bool applyFSR1();
+    bool applySGSR1();
     bool applyRCAS();
     bool applyCOPY();
 

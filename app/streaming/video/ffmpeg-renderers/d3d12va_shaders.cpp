@@ -75,10 +75,8 @@ D3D12VideoShaders::D3D12VideoShaders(
     VideoEnhancement* videoEnhancement,
     ID3D12Resource* textureIn,
     ID3D12Resource* textureOut,
-    int outWidth,
-    int outHeight,
-    int offsetTop,
-    int offsetLeft,
+    D3D12_VIEWPORT viewport,
+    D3D12_RECT scissorRect,
     Enhancer enhancer,
     DXGI_COLOR_SPACE_TYPE colorSpace
     ) :
@@ -88,10 +86,8 @@ D3D12VideoShaders::D3D12VideoShaders(
     m_VideoEnhancement(videoEnhancement),
     m_TextureIn(textureIn),
     m_TextureOut(textureOut),
-    m_OutWidth(outWidth),
-    m_OutHeight(outHeight),
-    m_OffsetTop(offsetTop),
-    m_OffsetLeft(offsetLeft),
+    m_Viewport(viewport),
+    m_ScissorRect(scissorRect),
     m_Enhancer(enhancer),
     m_ColorSpace(colorSpace),
     m_isYUV(false),
@@ -107,6 +103,10 @@ D3D12VideoShaders::D3D12VideoShaders(
     D3D12_RESOURCE_DESC inDesc = m_TextureIn->GetDesc();
     m_InWidth = static_cast<int>(inDesc.Width);
     m_InHeight = static_cast<int>(inDesc.Height);
+    
+    D3D12_RESOURCE_DESC outDesc = m_TextureOut->GetDesc();
+    m_OutWidth = static_cast<int>(outDesc.Width);
+    m_OutHeight = static_cast<int>(outDesc.Height);
     
     // YUV
     switch (inDesc.Format) {
@@ -155,20 +155,6 @@ D3D12VideoShaders::D3D12VideoShaders(
         break;
     }
     
-    // Viewport (Must match the Input texture, otherwise it will stretch the picture)
-    m_Viewport.TopLeftX = -static_cast<float>(m_OffsetLeft);
-    m_Viewport.TopLeftY = -static_cast<float>(m_OffsetTop);
-    m_Viewport.Width = static_cast<float>(m_InWidth);
-    m_Viewport.Height = static_cast<float>(m_InHeight);
-    m_Viewport.MinDepth = 0.0f;
-    m_Viewport.MaxDepth = 1.0f;
-    
-    // Scissor (Cropt to fit into the Output texture)
-    m_ScissorRect.left = 0;
-    m_ScissorRect.top = 0;
-    m_ScissorRect.right = m_OutWidth;
-    m_ScissorRect.bottom = m_OutHeight;
-    
     m_IsUpscaling = isUpscaler(m_Enhancer);
     m_IsUsingShader = isUsingShader(m_Enhancer);
     
@@ -186,6 +172,9 @@ D3D12VideoShaders::D3D12VideoShaders(
         break;
     case Enhancer::FSR1:
         initializeFSR1();
+        break;
+    case Enhancer::SGSR1:
+        initializeSGSR1();
         break;
     case Enhancer::RCAS:
         initializeRCAS();
@@ -291,19 +280,38 @@ bool D3D12VideoShaders::verifyHResult(HRESULT hr, const char* operation)
  */
 bool D3D12VideoShaders::isSupportingAdvancedShader()
 {
-    // Check 16-bit support
-    D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
-    m_hr = m_Device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
-    if(!verifyHResult(m_hr, "m_Device->CheckFeatureSupport(...options)")){
+    // Verify if the GPU is able to support Shader 6.2 version to support half-precision feature
+    D3D12_FEATURE_DATA_SHADER_MODEL shaderModel = { D3D_SHADER_MODEL_6_2 };
+    
+    m_hr = m_Device->CheckFeatureSupport(
+        D3D12_FEATURE_SHADER_MODEL,
+        &shaderModel,
+        sizeof(shaderModel)
+        );
+    if (!verifyHResult(m_hr, "m_Device->CheckFeatureSupport(...options)")) {
+        qInfo() << "Shader Model 6.2 is not supported";
         return false;
     }
-    if (!(options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT)){
+    if (shaderModel.HighestShaderModel < D3D_SHADER_MODEL_6_2) {
+        qInfo() << "Shader Model 6.2 is not supported";
         return false;
     }
     
-    // Try to load an advanced shader
+    // Check 16-bit support
+    D3D12_FEATURE_DATA_D3D12_OPTIONS options = {};
+    m_hr = m_Device->CheckFeatureSupport(D3D12_FEATURE_D3D12_OPTIONS, &options, sizeof(options));
+    if (!verifyHResult(m_hr, "m_Device->CheckFeatureSupport(...options)")) {
+        return false;
+    }
+    if (!(options.MinPrecisionSupport & D3D12_SHADER_MIN_PRECISION_SUPPORT_16_BIT)) {
+        return false;
+    }
+    
+    // Force to load shader 6.2
     m_AdvancedShader = true;
-    bool convertPS = initializeCONVERT_PS();
+    
+    // At true if succeed to load a shader 6.2
+    m_AdvancedShader = initializeCONVERT_PS();
     
     // Reset variables
     m_PipelineState.Reset();
@@ -312,11 +320,7 @@ bool D3D12VideoShaders::isSupportingAdvancedShader()
     m_DescriptorHeapRTV.Reset();
     m_DescriptorHeapSampler.Reset();
     
-    if(!convertPS){
-        return false;
-    }
-    
-    return true;
+    return m_AdvancedShader;
 }
 
 /**
@@ -861,16 +865,20 @@ bool D3D12VideoShaders::initializeCONVERT_PS()
     sourceBufferVS.Encoding = DXC_CP_UTF8;
 
     m_Args = {
-        L"-T",  L"vs_6_2",
         L"-E",  L"mainVS",
         L"-O3",
         L"-Qstrip_reflect",
         L"-Qstrip_debug",
     };
     if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"vs_6_2");
         m_Args.push_back(L"-D");
         m_Args.push_back(L"ADVANCED_SHADER=1");
         m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"vs_6_0");
     }
 
     m_hr = compiler->Compile(
@@ -922,16 +930,20 @@ bool D3D12VideoShaders::initializeCONVERT_PS()
     sourceBufferPS.Encoding = DXC_CP_UTF8;
 
     m_Args = {
-        L"-T",  L"ps_6_2",
         L"-E",  L"mainPS",
         L"-O3",
         L"-Qstrip_reflect",
         L"-Qstrip_debug",
     };
     if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"ps_6_2");
         m_Args.push_back(L"-D");
         m_Args.push_back(L"ADVANCED_SHADER=1");
         m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"ps_6_0");
     }
 
     m_hr = compiler->Compile(
@@ -1117,7 +1129,6 @@ bool D3D12VideoShaders::initializeNIS(bool isUpscaling)
     m_NIS_THREAD_GROUP_SIZE = std::wstring(L"NIS_THREAD_GROUP_SIZE=") + std::to_wstring(threadGroupSize);
 
     m_Args = {
-        L"-T",  L"cs_6_2",
         L"-E",  L"main",
         L"-O3",
         L"-Qstrip_reflect",
@@ -1127,14 +1138,20 @@ bool D3D12VideoShaders::initializeNIS(bool isUpscaling)
         L"-D",  m_NIS_BLOCK_WIDTH.c_str(),
         L"-D",  m_NIS_BLOCK_HEIGHT.c_str(),
         L"-D",  m_NIS_THREAD_GROUP_SIZE.c_str(),
-        L"-D",  L"NIS_HLSL_6_2=1",
     };
     if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_2");
+        m_Args.push_back(L"-D");
+        m_Args.push_back(L"NIS_HLSL_6_2=1");
         m_Args.push_back(L"-D");
         m_Args.push_back(L"ADVANCED_SHADER=1");
         m_Args.push_back(L"-D");
         m_Args.push_back(L"NIS_USE_HALF_PRECISION=1");
         m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_0");
     }
 
     ComPtr<IDxcIncludeHandler> includeHandler = new QtIncludeHandler();
@@ -1435,7 +1452,6 @@ bool D3D12VideoShaders::initializeFSR1()
     sourceBuffer.Encoding = DXC_CP_UTF8;
 
     m_Args = {
-        L"-T",  L"cs_6_2",
         L"-E",  L"mainCS",
         L"-O3",
         L"-Qstrip_reflect",
@@ -1444,9 +1460,15 @@ bool D3D12VideoShaders::initializeFSR1()
         L"-D", L"APPLY_EASU=1",
     };
     if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_2");
         m_Args.push_back(L"-D");
         m_Args.push_back(L"ADVANCED_SHADER=1");
         m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_0");
     }
 
     m_hr = compiler->Compile(
@@ -1489,7 +1511,6 @@ bool D3D12VideoShaders::initializeFSR1()
         sharpeness);
 
     m_Args = {
-        L"-T",  L"cs_6_2",
         L"-E",  L"mainCS",
         L"-O3",
         L"-Qstrip_reflect",
@@ -1498,9 +1519,15 @@ bool D3D12VideoShaders::initializeFSR1()
         L"-D", L"APPLY_RCAS=1",
     };
     if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_2");
         m_Args.push_back(L"-D");
         m_Args.push_back(L"ADVANCED_SHADER=1");
         m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_0");
     }
 
     m_hr = compiler->Compile(
@@ -1626,6 +1653,297 @@ bool D3D12VideoShaders::initializeFSR1()
 }
 
 /**
+ * \brief Initialize Snapdragon Gaming Super Resolution pipeline
+ *
+ * Compiles GSRS pixel shader.
+ * Made for Snapdragon GPUs (Adreno).
+ * Lower quality than FSR1, but fast as 1-Pass only.
+ *
+ * \return bool True if initialization succeeded
+ */
+bool D3D12VideoShaders::initializeSGSR1()
+{
+    // 1 SRV heap / 1 RTV heap
+    createDescriptorHeaps(1, 1, 0);
+    
+    // Create SRVs for m_TextureIn
+    if (!updateShaderResourceView(m_TextureIn.Get())) {
+        return false;
+    }
+    
+    // Create RTV descriptor for m_TextureOut at RTV index 0
+    if (!createRTVforResource(m_TextureOut.Get(), 0, m_TextureOut.Get()->GetDesc().Format)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "createRTVforResource failed");
+        return false;
+    }
+    SDL_Log("Created RTV for output texture");
+    
+    ComPtr<IDxcCompiler3> compiler;
+    DxcCreateInstance(CLSID_DxcCompiler, IID_PPV_ARGS(&compiler));
+    ComPtr<IDxcIncludeHandler> includeHandler = new QtIncludeHandler();
+    ComPtr<IDxcResult> result;
+    
+    // Vertex shader
+    QFile fileVS(":/enhancer/sgsr1_shader.hlsl");
+    if (!fileVS.open(QIODevice::ReadOnly)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot open sgsr1_shader.hlsl for Vertex shader");
+        return false;
+    }
+    QByteArray hlslSourceVS = fileVS.readAll();
+    fileVS.close();
+    
+    DxcBuffer sourceBufferVS = {};
+    sourceBufferVS.Ptr = hlslSourceVS.data();
+    sourceBufferVS.Size = hlslSourceVS.size();
+    sourceBufferVS.Encoding = DXC_CP_UTF8;
+    
+    m_Args = {
+        L"-E",  L"mainVS",
+        L"-O3",
+        L"-Qstrip_reflect",
+        L"-Qstrip_debug",
+    };
+    if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"vs_6_2");
+        m_Args.push_back(L"-D");
+        m_Args.push_back(L"ADVANCED_SHADER=1");
+        m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"vs_6_0");
+    }
+    
+    m_hr = compiler->Compile(
+        &sourceBufferVS,
+        m_Args.data(),
+        (UINT32)m_Args.size(),
+        includeHandler.Get(),
+        IID_PPV_ARGS(&result));
+    if(!verifyHResult(m_hr, "compiler->Compile(... sourceBufferVS)")){
+        return false;
+    }
+    
+    if(result){
+        ComPtr<IDxcBlobEncoding> errorsBlob;
+        m_hr = result->GetErrorBuffer(&errorsBlob);
+        if(!verifyHResult(m_hr, "result->GetErrorBuffer(&errorsBlob)")){
+            if (errorsBlob) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "VS compile error: %s",
+                             (char*)errorsBlob->GetBufferPointer());
+            }
+            return false;
+        }
+    }
+    
+    ComPtr<IDxcBlob> shaderBlobVS;
+    ComPtr<IDxcBlobUtf16> shaderNameVS;
+    m_hr = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlobVS), &shaderNameVS);
+    if (!verifyHResult(m_hr, "result->GetOutput(DXC_OUT_OBJECT, ...)")) {
+        return false;
+    }
+    if (!shaderBlobVS || shaderBlobVS->GetBufferSize() == 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Shader blob Vertex shader is empty!");
+        return false;
+    }
+    SDL_Log("Vertex Shader compiled successfully");
+    
+    // Pixel shader
+    QFile filePS(":/enhancer/sgsr1_shader.hlsl");
+    if (!filePS.open(QIODevice::ReadOnly)) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Cannot open sgsr1_shader.hlsl for Pixel shader");
+        return false;
+    }
+    QByteArray hlslSourcePS = filePS.readAll();
+    filePS.close();
+    
+    DxcBuffer sourceBufferPS = {};
+    sourceBufferPS.Ptr = hlslSourcePS.data();
+    sourceBufferPS.Size = hlslSourcePS.size();
+    sourceBufferPS.Encoding = DXC_CP_UTF8;
+    
+    m_Args = {
+        L"-E",  L"mainPS",
+        L"-O3",
+        L"-Qstrip_reflect",
+        L"-Qstrip_debug",
+    };
+    if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"ps_6_2");
+        m_Args.push_back(L"-D");
+        m_Args.push_back(L"ADVANCED_SHADER=1");
+        m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"ps_6_0");
+    }
+    
+    m_hr = compiler->Compile(
+        &sourceBufferPS,
+        m_Args.data(),
+        (UINT32)m_Args.size(),
+        includeHandler.Get(),
+        IID_PPV_ARGS(&result));
+    if(!verifyHResult(m_hr, "compiler->Compile(... sourceBufferPS)")){
+        return false;
+    }
+    
+    if(result){
+        ComPtr<IDxcBlobEncoding> errorsBlob;
+        m_hr = result->GetErrorBuffer(&errorsBlob);
+        if(!verifyHResult(m_hr, "result->GetErrorBuffer(&errorsBlob)")){
+            if (errorsBlob) {
+                SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "PS compile error: %s",
+                             (char*)errorsBlob->GetBufferPointer());
+            }
+            return false;
+        }
+    }
+    
+    ComPtr<IDxcBlob> shaderBlobPS;
+    ComPtr<IDxcBlobUtf16> shaderNamePS;
+    m_hr = result->GetOutput(DXC_OUT_OBJECT, IID_PPV_ARGS(&shaderBlobPS), &shaderNamePS);
+    if (!verifyHResult(m_hr, "result->GetOutput(DXC_OUT_OBJECT, ...)")) {
+        return false;
+    }
+    if (!shaderBlobPS || shaderBlobPS->GetBufferSize() == 0) {
+        SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Shader blob Pixel shader is empty!");
+        return false;
+    }
+    SDL_Log("Pixel Shader compiled successfully");
+    
+    // Descriptor Range
+    CD3DX12_DESCRIPTOR_RANGE1 srvRange = {};
+    srvRange.Init(D3D12_DESCRIPTOR_RANGE_TYPE_SRV, 1, 0);  // 1 SRV, t0 (RGB)
+    
+    // Root Parameters : descriptor table (index 0)
+    CD3DX12_ROOT_PARAMETER1 rootParameters[2] = {};
+    // index 0 : CBV b0 → ViewportInfo
+    rootParameters[0].InitAsConstantBufferView(
+        0, 0,
+        D3D12_ROOT_DESCRIPTOR_FLAG_NONE,
+        D3D12_SHADER_VISIBILITY_PIXEL);
+    // index 1 : SRV descriptor table t0
+    rootParameters[1].InitAsDescriptorTable(
+        1, &srvRange,
+        D3D12_SHADER_VISIBILITY_PIXEL);
+    
+    // Static sampler
+    D3D12_STATIC_SAMPLER_DESC samplerDesc = {};
+    samplerDesc.Filter = D3D12_FILTER_MIN_MAG_MIP_LINEAR;
+    samplerDesc.AddressU = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samplerDesc.AddressV = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samplerDesc.AddressW = D3D12_TEXTURE_ADDRESS_MODE_CLAMP;
+    samplerDesc.MipLODBias = 0;
+    samplerDesc.MaxAnisotropy = 1;
+    samplerDesc.ComparisonFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    samplerDesc.BorderColor = D3D12_STATIC_BORDER_COLOR_OPAQUE_BLACK;
+    samplerDesc.MinLOD = 0.0f;
+    samplerDesc.MaxLOD = D3D12_FLOAT32_MAX;
+    samplerDesc.ShaderRegister = 0;  // s0
+    samplerDesc.RegisterSpace = 0;
+    samplerDesc.ShaderVisibility = D3D12_SHADER_VISIBILITY_PIXEL;
+    
+    // Root Signature
+    CD3DX12_VERSIONED_ROOT_SIGNATURE_DESC rootSignatureDesc = {};
+    D3D12_ROOT_SIGNATURE_FLAGS rootSignatureFlags =
+        D3D12_ROOT_SIGNATURE_FLAG_ALLOW_INPUT_ASSEMBLER_INPUT_LAYOUT |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_HULL_SHADER_ROOT_ACCESS |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_DOMAIN_SHADER_ROOT_ACCESS |
+        D3D12_ROOT_SIGNATURE_FLAG_DENY_GEOMETRY_SHADER_ROOT_ACCESS;
+    rootSignatureDesc.Init_1_1(_countof(rootParameters), rootParameters, 1, &samplerDesc,
+                               rootSignatureFlags);
+    
+    ComPtr<ID3DBlob> signature;
+    ComPtr<ID3DBlob> error;
+    m_hr = D3DX12SerializeVersionedRootSignature(&rootSignatureDesc,
+                                                 D3D_ROOT_SIGNATURE_VERSION_1_1,
+                                                 &signature, &error);
+    
+    if(!verifyHResult(m_hr, "D3DX12SerializeVersionedRootSignature(... rootSignatureDesc)")){
+        if (error) {
+            SDL_LogError(SDL_LOG_CATEGORY_APPLICATION, "Root signature serialization error: %s",
+                         (char*)error->GetBufferPointer());
+        }
+        return false;
+    }
+    
+    m_hr = m_Device->CreateRootSignature(0, signature->GetBufferPointer(),
+                                         signature->GetBufferSize(),
+                                         IID_PPV_ARGS(&m_RootSignature));
+    if(!verifyHResult(m_hr, "m_Device->CreateRootSignature(... m_RootSignature)")){
+        return false;
+    }
+    SDL_Log("Root Signature created successfully");
+    
+    // Viewport constant
+    // Aligned to 256 bytes (required for D3D12 CBV)
+    const UINT cbSize = (sizeof(SGSRConstants) + 255) & ~255;
+    
+    CD3DX12_HEAP_PROPERTIES heapPropsCB(D3D12_HEAP_TYPE_UPLOAD);
+    CD3DX12_RESOURCE_DESC resDescCB = CD3DX12_RESOURCE_DESC::Buffer(cbSize);
+    
+    m_hr = m_Device->CreateCommittedResource(
+        &heapPropsCB,
+        D3D12_HEAP_FLAG_NONE,
+        &resDescCB,
+        D3D12_RESOURCE_STATE_GENERIC_READ,
+        nullptr,
+        IID_PPV_ARGS(&m_SGSRConstantBuffer));
+    if (!verifyHResult(m_hr, "CreateCommittedResource SGSRConstantBuffer")) {
+        return false;
+    }
+    
+    m_SGSRConstants = {
+        1.0f / static_cast<float>(m_InWidth),   // con1.x = 1/inputWidth
+        1.0f / static_cast<float>(m_InHeight),  // con1.y = 1/inputHeight
+        static_cast<float>(m_InWidth),          // con1.z = inputWidth
+        static_cast<float>(m_InHeight)          // con1.w = inputHeight
+    };
+    
+    // Map → memcpy → Unmap
+    void* pDataCB = nullptr;
+    CD3DX12_RANGE readRangeCB(0, 0);
+    m_SGSRConstantBuffer->Map(0, &readRangeCB, &pDataCB);
+    memcpy(pDataCB, &m_SGSRConstants, sizeof(SGSRConstants));
+    m_SGSRConstantBuffer->Unmap(0, nullptr);
+    
+    // Pipeline State Object
+    D3D12_GRAPHICS_PIPELINE_STATE_DESC psoDesc = {};
+    psoDesc.pRootSignature = m_RootSignature.Get();
+    psoDesc.VS = CD3DX12_SHADER_BYTECODE(shaderBlobVS->GetBufferPointer(), shaderBlobVS->GetBufferSize());
+    psoDesc.PS = CD3DX12_SHADER_BYTECODE(shaderBlobPS->GetBufferPointer(), shaderBlobPS->GetBufferSize());
+    psoDesc.BlendState = CD3DX12_BLEND_DESC(D3D12_DEFAULT);
+    psoDesc.BlendState.RenderTarget[0].RenderTargetWriteMask = D3D12_COLOR_WRITE_ENABLE_ALL;
+    psoDesc.RasterizerState = CD3DX12_RASTERIZER_DESC(D3D12_DEFAULT);
+    psoDesc.RasterizerState.CullMode = D3D12_CULL_MODE_NONE;
+    psoDesc.DepthStencilState = CD3DX12_DEPTH_STENCIL_DESC(D3D12_DEFAULT);
+    psoDesc.DepthStencilState.DepthEnable = FALSE;
+    psoDesc.DepthStencilState.StencilEnable = FALSE;
+    psoDesc.DepthStencilState.DepthFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    psoDesc.DepthStencilState.FrontFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    psoDesc.DepthStencilState.BackFace.StencilFunc = D3D12_COMPARISON_FUNC_ALWAYS;
+    psoDesc.InputLayout = { nullptr, 0 };
+    psoDesc.PrimitiveTopologyType = D3D12_PRIMITIVE_TOPOLOGY_TYPE_TRIANGLE;
+    psoDesc.NumRenderTargets = 1;
+    psoDesc.RTVFormats[0] = m_TextureOut->GetDesc().Format;
+    psoDesc.SampleDesc.Count = 1;
+    psoDesc.SampleDesc.Quality = 0;
+    psoDesc.SampleMask = UINT_MAX;
+    
+    m_hr = m_Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_PipelineState));
+    if(!verifyHResult(m_hr, "m_Device->CreateGraphicsPipelineState(&psoDesc, IID_PPV_ARGS(&m_PipelineState));")){
+        return false;
+    }
+    SDL_Log("Pipeline State Object created successfully");
+    
+    SDL_Log("initializeSGSR1 completed successfully");
+    
+    return true;
+}
+
+/**
  * \brief Initialize RCAS sharpening pipeline
  *
  * Compiles RCAS compute shader and creates pipeline for
@@ -1684,7 +2002,6 @@ bool D3D12VideoShaders::initializeRCAS()
     sourceBuffer.Encoding = DXC_CP_UTF8;
 
     m_Args = {
-        L"-T",  L"cs_6_2",
         L"-E",  L"mainCS",
         L"-O3",
         L"-Qstrip_reflect",
@@ -1693,9 +2010,14 @@ bool D3D12VideoShaders::initializeRCAS()
         L"-D", L"APPLY_RCAS=1",
     };
     if(m_AdvancedShader){
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_2");
         m_Args.push_back(L"-D");
         m_Args.push_back(L"ADVANCED_SHADER=1");
         m_Args.push_back(L"-enable-16bit-types");
+    } else {
+        m_Args.push_back(L"-T");
+        m_Args.push_back(L"cs_6_0");
     }
 
     m_hr = compiler->Compile(
@@ -1951,6 +2273,9 @@ void D3D12VideoShaders::draw(
         break;
     case Enhancer::FSR1:
         applyFSR1();
+        break;
+    case Enhancer::SGSR1:
+        applySGSR1();
         break;
     case Enhancer::RCAS:
         applyRCAS();
@@ -2298,6 +2623,95 @@ bool D3D12VideoShaders::applyFSR1()
 
     return true;
 }
+
+/**
+ * \brief Apply SGRS1 one-pass enhancement
+ *
+ * Execute SGRS1 upscaling and sharpening pass to the texture.
+ *
+ * \return bool True if copy applied successfully
+ */
+bool D3D12VideoShaders::applySGSR1()
+{
+    if (!m_GraphicsCommandList || !m_PipelineState) return false;
+    
+    CD3DX12_RESOURCE_BARRIER barriers[2];
+    UINT NbrBarriers;
+    
+    NbrBarriers = 0;
+    if(m_InputTextureStateIn != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureIn.Get(),
+            m_InputTextureStateIn,
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE
+            );
+        NbrBarriers++;
+    }
+    if(m_OutputTextureStateIn != D3D12_RESOURCE_STATE_RENDER_TARGET){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureOut.Get(),
+            m_OutputTextureStateIn,
+            D3D12_RESOURCE_STATE_RENDER_TARGET
+            );
+        NbrBarriers++;
+    }
+    if(NbrBarriers > 0){
+        m_GraphicsCommandList->ResourceBarrier(NbrBarriers, barriers);
+    }
+    
+    m_GraphicsCommandList->SetPipelineState(m_PipelineState.Get());
+    m_GraphicsCommandList->SetGraphicsRootSignature(m_RootSignature.Get());
+    
+    // Set descriptor heap and root signature/PSO
+    ID3D12DescriptorHeap* heaps[] = { m_DescriptorHeapCBV_SRV_UAV.Get() };
+    m_GraphicsCommandList->SetDescriptorHeaps(_countof(heaps), heaps);
+    
+    m_GraphicsCommandList->SetGraphicsRootConstantBufferView(0, m_SGSRConstantBuffer->GetGPUVirtualAddress());    
+    
+    m_GraphicsCommandList->SetGraphicsRootDescriptorTable(
+        1,
+        m_DescriptorHeapCBV_SRV_UAV->GetGPUDescriptorHandleForHeapStart()
+        );
+    
+    m_GraphicsCommandList->RSSetViewports(1, &m_Viewport);
+    m_GraphicsCommandList->RSSetScissorRects(1, &m_ScissorRect);
+    
+    CD3DX12_CPU_DESCRIPTOR_HANDLE rtvHandle(m_DescriptorHeapRTV->GetCPUDescriptorHandleForHeapStart());
+    
+    m_GraphicsCommandList->OMSetRenderTargets(1, &rtvHandle, FALSE, nullptr);
+    
+    // Clear the texture in black
+    const float clearColor[4] = { 0.0f, 0.0f, 0.0f, 1.0f };
+    m_GraphicsCommandList->ClearRenderTargetView(rtvHandle, clearColor, 0, nullptr);
+    
+    // Set primitive topology (triangle) and draw fullscreen triangle with SV_VertexID
+    m_GraphicsCommandList->IASetPrimitiveTopology(D3D_PRIMITIVE_TOPOLOGY_TRIANGLELIST);
+    m_GraphicsCommandList->DrawInstanced(3, 1, 0, 0);
+    
+    NbrBarriers = 0;
+    if(m_InputTextureStateOut != D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureIn.Get(),
+            D3D12_RESOURCE_STATE_PIXEL_SHADER_RESOURCE,
+            m_InputTextureStateOut
+            );
+        NbrBarriers++;
+    }
+    if(m_OutputTextureStateOut != D3D12_RESOURCE_STATE_RENDER_TARGET){
+        barriers[NbrBarriers] = CD3DX12_RESOURCE_BARRIER::Transition(
+            m_TextureOut.Get(),
+            D3D12_RESOURCE_STATE_RENDER_TARGET,
+            m_OutputTextureStateOut
+            );
+        NbrBarriers++;
+    }
+    if(NbrBarriers > 0){
+        m_GraphicsCommandList->ResourceBarrier(NbrBarriers, barriers);
+    }
+    
+    return true;
+}
+
 
 /**
  * \brief Apply RCAS sharpening

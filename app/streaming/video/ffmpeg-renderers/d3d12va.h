@@ -134,7 +134,6 @@ private:
     bool enableIntelHDR(bool activate = true, bool logInfo = true);
     bool enableNvidiaHDR(bool activate = true, bool logInfo = true);
     void setAMDHdr();
-    bool isShader62supported();
     bool isNvidiaVSRSupport();
     bool getDisplayHDRStatus();
     void updateDisplayHDRStatusAsync(bool isFrameHDR);

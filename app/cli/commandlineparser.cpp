@@ -311,8 +311,9 @@ StreamCommandLineParser::StreamCommandLineParser()
         {"video-processor",            StreamingPreferences::SRM_02},
         {"fsr1-upscaler",              StreamingPreferences::SRM_03},
         {"nis-upscaler",               StreamingPreferences::SRM_04},
-        {"rcas-sharpener",             StreamingPreferences::SRM_05},
-        {"nis-sharpener",              StreamingPreferences::SRM_06},
+        {"sgsr1-upscaler",             StreamingPreferences::SRM_05},
+        {"rcas-sharpener",             StreamingPreferences::SRM_06},
+        {"nis-sharpener",              StreamingPreferences::SRM_07},
     };
     m_VideoCodecMap = {
         {"auto",  StreamingPreferences::VCC_AUTO},

@@ -63,32 +63,12 @@ bool VideoEnhancement::isVendorAMD(){
 }
 
 /**
- * \brief Check if the vendor is AMD
- *
- * \param int vendorId
- * \return bool Returns true is the vendor is AMD
- */
-bool VideoEnhancement::isVendorAMD(int vendorId){
-    return vendorId == VENDOR_ID_AMD;
-}
-
-/**
  * \brief Check if the vendor is Intel
  *
  * \return bool Returns true is the vendor is Intel
  */
 bool VideoEnhancement::isVendorIntel(){
     return m_VendorId == VENDOR_ID_INTEL;
-}
-
-/**
- * \brief Check if the vendor is Intel
- *
- * \param int vendorId
- * \return bool Returns true is the vendor is Intel
- */
-bool VideoEnhancement::isVendorIntel(int vendorId){
-    return vendorId == VENDOR_ID_INTEL;
 }
 
 /**
@@ -101,13 +81,12 @@ bool VideoEnhancement::isVendorNVIDIA(){
 }
 
 /**
- * \brief Check if the vendor is NVIDIA
+ * \brief Check if the vendor is Qualcomm
  *
- * \param int vendorId
- * \return bool Returns true is the vendor is NVIDIA
+ * \return bool Returns true is the vendor is Qualcomm
  */
-bool VideoEnhancement::isVendorNVIDIA(int vendorId){
-    return vendorId == VENDOR_ID_NVIDIA;
+bool VideoEnhancement::isVendorQualcomm(){
+    return m_VendorId == VENDOR_ID_QUALCOMM;
 }
 
 /**

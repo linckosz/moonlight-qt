@@ -391,8 +391,6 @@ void D3D12VARenderer::updateDisplayHDRStatusAsync(bool isFrameHDR)
  */
 void D3D12VARenderer::enhanceAutoSelection()
 {
-    bool shader62support = isShader62supported();
-    
     // We copy the value to not overwrite the user selection value while testing
     StreamingPreferences::SuperResolutionMode superResolutionMode = m_Preferences->superResolutionMode;
 
@@ -506,6 +504,18 @@ void D3D12VARenderer::enhanceAutoSelection()
             m_InfoAlgo = "Shader NIS";
         }
     }
+    
+    // Qualcomm
+    else if(m_VideoEnhancement->isVendorQualcomm()){
+        m_VendorVSRenabled = true;
+        m_VendorHDRenabled = false;
+        m_EnhancerType = D3D12VideoShaders::Enhancer::SGSR1;
+        m_RenderStep1 = RenderStep::CONVERT_SHADER;
+        m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+        m_InfoUpscaler = "SGSR1 Upscaler";
+        m_InfoSharpener = "SGSR1 Sharpener";
+        m_InfoAlgo = "Shader SGSR1";
+    }
 
     // The user can force the algorithm used for Test/Debug purpose only, the production must be set to "auto"
     // User Interface: Hidden by default. It is visible only in Debug mode.
@@ -582,8 +592,21 @@ void D3D12VARenderer::enhanceAutoSelection()
         m_InfoSharpener = "NIS Sharpener";
         m_InfoAlgo = "Shader NIS";
         break;
-
+        
     case StreamingPreferences::SRM_05:
+        // SGSR1
+        m_VendorVSRenabled = false;
+        // m_VendorHDRenabled: Keep default setting
+        m_EnhancerType = D3D12VideoShaders::Enhancer::SGSR1;
+        m_RenderStep1 = RenderStep::CONVERT_SHADER;
+        m_RenderStep2 = RenderStep::UPSCALE_SHADER;
+        m_InfoUpscaler = "SGSR1 Upscaler";
+        m_InfoSharpener = "SGSR1 Sharpener";
+        m_InfoAlgo = "Shader SGSR1";
+        break;
+
+
+    case StreamingPreferences::SRM_06:
         // RCAS (Only Sharpener)
         m_VendorVSRenabled = false;
         // m_VendorHDRenabled: Keep default setting
@@ -595,7 +618,7 @@ void D3D12VARenderer::enhanceAutoSelection()
         m_InfoAlgo = "Video Processor RCAS";
         break;
 
-    case StreamingPreferences::SRM_06:
+    case StreamingPreferences::SRM_07:
         // NIS Sharpener
         m_VendorVSRenabled = false;
         // m_VendorHDRenabled: Keep default setting
@@ -619,21 +642,6 @@ void D3D12VARenderer::enhanceAutoSelection()
     // Disable VSR if we use Shader to upscale
     if(D3D12VideoShaders::isUpscaler(m_EnhancerType)){
         m_VendorVSRenabled = false;
-    }
-
-    // For unsuported shader 6.2 (old GPU), switch to Video Processor
-    if(!shader62support){
-        m_VendorVSRenabled = false;
-        m_VendorHDRenabled = false;
-        m_EnhancerType = D3D12VideoShaders::Enhancer::NONE;
-        m_RenderStep1 = RenderStep::ALL_VIDEOPROCESSOR;
-        m_RenderStep2 = RenderStep::NONE;
-        m_InfoUpscaler = "Video Processor";
-        m_InfoSharpener = "None";
-        if (m_EdgeEnhancementValue > 0){
-            m_InfoSharpener = "Video Processor";
-        }
-        m_InfoAlgo = "Video Processor";
     }
 
     // Correct VSR
@@ -1417,34 +1425,6 @@ D3D12VARenderer::VppSurface* D3D12VARenderer::findUnlockedSurface(std::vector<Vp
             return &s;
     }
     return nullptr;
-}
-
-/**
- * \brief Enable Video Super-Resolution for AMD GPU
- *
- * Verify if the GPU is able to support Shader 6.2 version to support half-precision feature
- *
- * \return bool Return true if the shader 6.2+ is supported
- */
-bool D3D12VARenderer::isShader62supported()
-{
-    D3D12_FEATURE_DATA_SHADER_MODEL shaderModel = { D3D_SHADER_MODEL_6_2 };
-
-    m_hr = m_Device->CheckFeatureSupport(
-        D3D12_FEATURE_SHADER_MODEL,
-        &shaderModel,
-        sizeof(shaderModel)
-        );
-
-    if(SUCCEEDED(m_hr)){
-        if(shaderModel.HighestShaderModel >= D3D_SHADER_MODEL_6_2){
-            qInfo() << "Shader Model 6.2 is supported";
-            return true;
-        }
-    }
-
-    qInfo() << "Shader Model 6.2 is not supported";
-    return false;
 }
 
 /**
@@ -3848,10 +3828,27 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
 
     // Initialize the Shaders
     {
+        D3D12_VIEWPORT viewport = {};
+        D3D12_RECT scissorRect = {};
+        
         // Render Step 1
         switch (m_RenderStep1) {
         case RenderStep::CONVERT_SHADER:
 
+            // Viewport
+            viewport.TopLeftX = 0;
+            viewport.TopLeftY = 0;
+            viewport.Width = static_cast<float>(m_FrameTexture->GetDesc().Width);
+            viewport.Height = static_cast<float>(m_FrameTexture->GetDesc().Height);
+            viewport.MinDepth = 0.0f;
+            viewport.MaxDepth = 1.0f;
+            
+            // Scissor (Crop to fit into the Output texture)
+            scissorRect.left = 0;
+            scissorRect.top = 0;
+            scissorRect.right = m_DecoderParams.textureWidth;
+            scissorRect.bottom = m_DecoderParams.textureHeight;
+            
             // Convert m_FrameTexture YUV (original size with alignment)
             // Pixel shader is faster 30% than compute shader
             m_ShaderConverter.reset();
@@ -3862,10 +3859,8 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
                 m_VideoEnhancement,
                 m_FrameTexture.Get(),
                 m_RGBTexture.Get(),
-                m_DecoderParams.textureWidth,
-                m_DecoderParams.textureHeight,
-                0,
-                0,
+                viewport,
+                scissorRect,
                 D3D12VideoShaders::Enhancer::CONVERT_PS,
                 m_Decoder.ColorSpace
                 );
@@ -3880,6 +3875,20 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
         // Render Step 2
         switch (m_RenderStep2) {
         case RenderStep::CONVERT_SHADER:
+            
+            // Viewport
+            viewport.TopLeftX = 0;
+            viewport.TopLeftY = 0;
+            viewport.Width = static_cast<float>(m_OutputTextureInfo.width);
+            viewport.Height = static_cast<float>(m_OutputTextureInfo.height);
+            viewport.MinDepth = 0.0f;
+            viewport.MaxDepth = 1.0f;
+            
+            // Scissor
+            scissorRect.left = 0;
+            scissorRect.top = 0;
+            scissorRect.right = m_OutputTextureInfo.width;
+            scissorRect.bottom = m_OutputTextureInfo.height;
 
             // Convert
             // Pixel shader is faster 30% than compute shader
@@ -3891,10 +3900,8 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
                 m_VideoEnhancement,
                 m_YUVTextureUpscaled.Get(),
                 m_OutputTexture.Get(),
-                m_OutputTextureInfo.width,
-                m_OutputTextureInfo.height,
-                0,
-                0,
+                viewport,
+                scissorRect,
                 D3D12VideoShaders::Enhancer::CONVERT_PS,
                 m_Decoder.ColorSpace
                 );
@@ -3903,6 +3910,20 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
 
             break;
         case RenderStep::UPSCALE_SHADER:
+            
+            // Viewport
+            viewport.TopLeftX = 0;
+            viewport.TopLeftY = 0;
+            viewport.Width = static_cast<float>(m_OutputTextureInfo.width);
+            viewport.Height = static_cast<float>(m_OutputTextureInfo.height);
+            viewport.MinDepth = 0.0f;
+            viewport.MaxDepth = 1.0f;
+            
+            // Scissor
+            scissorRect.left = 0;
+            scissorRect.top = 0;
+            scissorRect.right = m_OutputTextureInfo.width;
+            scissorRect.bottom = m_OutputTextureInfo.height;
 
             // Upscale RGB Only
             m_ShaderUpscaler.reset();
@@ -3913,10 +3934,8 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
                 m_VideoEnhancement,
                 m_RGBTexture.Get(),
                 m_OutputTexture.Get(),
-                m_OutputTextureInfo.width,
-                m_OutputTextureInfo.height,
-                m_OutputTextureInfo.top,
-                m_OutputTextureInfo.left,
+                viewport,
+                scissorRect,
                 m_EnhancerType,
                 m_Decoder.ColorSpace
                 );
@@ -3925,6 +3944,20 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
 
             break;
         case RenderStep::SHARPEN_SHADER:
+            
+            // Viewport
+            viewport.TopLeftX = 0;
+            viewport.TopLeftY = 0;
+            viewport.Width = static_cast<float>(m_OutputTextureInfo.width);
+            viewport.Height = static_cast<float>(m_OutputTextureInfo.height);
+            viewport.MinDepth = 0.0f;
+            viewport.MaxDepth = 1.0f;
+            
+            // Scissor
+            scissorRect.left = 0;
+            scissorRect.top = 0;
+            scissorRect.right = m_OutputTextureInfo.width;
+            scissorRect.bottom = m_OutputTextureInfo.height;
 
             // Upscale RGB Only
             m_ShaderSharpener.reset();
@@ -3935,10 +3968,8 @@ bool D3D12VARenderer::initialize(PDECODER_PARAMETERS params)
                 m_VideoEnhancement,
                 m_RGBTextureUpscaled.Get(),
                 m_OutputTexture.Get(),
-                m_OutputTextureInfo.width,
-                m_OutputTextureInfo.height,
-                m_OutputTextureInfo.top,
-                m_OutputTextureInfo.left,
+                viewport,
+                scissorRect,
                 m_EnhancerType,
                 m_Decoder.ColorSpace
                 );
@@ -4621,7 +4652,7 @@ RenderStep1:
     }
 
     // YUV->RGB Conversion using Video Procesor
-    if(m_RenderStep1 == RenderStep::CONVERT_VIDEOPROCESSOR){
+    else if(m_RenderStep1 == RenderStep::CONVERT_VIDEOPROCESSOR){
 
         resetVideoProcessCommand = true;
 
@@ -4681,7 +4712,7 @@ RenderStep1:
     }
 
     // YUV->RGB Conversion using Shader
-    if(m_RenderStep1 == RenderStep::CONVERT_SHADER){
+    else if(m_RenderStep1 == RenderStep::CONVERT_SHADER){
 
         resetGraphicsCommand = true;
 
@@ -4722,7 +4753,7 @@ RenderStep1:
 
     // AMF is used for the whole pipeline.
     // We convert directly m_FrameTexture to m_OutputTexture.
-    if(m_RenderStep1 == RenderStep::ALL_AMF){
+    else if(m_RenderStep1 == RenderStep::ALL_AMF){
 
         m_AmfContext->CreateSurfaceFromDX12Native(m_FrameTexture.Get(), &m_AmfSurfaceYUV, nullptr);
         m_AmfSurfaceYUV->SetCrop(0, 0, m_DecoderParams.textureWidth, m_DecoderParams.textureHeight);
@@ -4759,7 +4790,7 @@ RenderStep1:
     }
 
     // YUV Upscaling using AMF
-    if(m_RenderStep1 == RenderStep::UPSCALE_AMF){
+    else if(m_RenderStep1 == RenderStep::UPSCALE_AMF){
 
         m_AmfContext->CreateSurfaceFromDX12Native(m_FrameTexture.Get(), &m_AmfSurfaceYUV, nullptr);
         m_AmfSurfaceYUV->SetCrop(0, 0, m_DecoderParams.textureWidth, m_DecoderParams.textureHeight);
@@ -4780,7 +4811,7 @@ RenderStep1:
     }
 
     // YUV->RGB Conversion using AMF
-    if(m_RenderStep1 == RenderStep::CONVERT_AMF){
+    else if(m_RenderStep1 == RenderStep::CONVERT_AMF){
 
         m_AmfContext->CreateSurfaceFromDX12Native(m_FrameTexture.Get(), &m_AmfSurfaceYUV, nullptr);
         m_AmfSurfaceYUV->SetCrop(0, 0, m_DecoderParams.textureWidth, m_DecoderParams.textureHeight);
@@ -4801,7 +4832,7 @@ RenderStep1:
     }
     
     // YUV Upscaling using Intel VPL
-    if(m_RenderStep1 == RenderStep::UPSCALE_VPL){
+    else if(m_RenderStep1 == RenderStep::UPSCALE_VPL){
         
         // Working D3D11, but slow over x1.40
         mfxStatus sts;        
@@ -5156,7 +5187,7 @@ RenderStep2:
     }
     
     // RGB Upscaling using NVIDIA VSR
-    if(m_RenderStep2 == RenderStep::UPSCALE_VSR){
+    else if(m_RenderStep2 == RenderStep::UPSCALE_VSR){
         
         resetGraphicsCommand = true;
         
@@ -5229,7 +5260,7 @@ RenderStep2:
     }
     
     // RGB Upscaling using AMD AMF
-    if(m_RenderStep2 == RenderStep::UPSCALE_AMF){
+    else if(m_RenderStep2 == RenderStep::UPSCALE_AMF){
 
         m_AmfContext->CreateSurfaceFromDX12Native(m_RGBTexture.Get(), &m_AmfSurfaceRGB, nullptr);
 
@@ -5249,7 +5280,7 @@ RenderStep2:
     }
 
     // YUV->RGB Conversion using AMF
-    if(m_RenderStep2 == RenderStep::CONVERT_AMF){
+    else if(m_RenderStep2 == RenderStep::CONVERT_AMF){
 
         m_AmfContext->CreateSurfaceFromDX12Native(m_YUVTextureUpscaled.Get(), &m_AmfSurfaceUpscaledYUV, nullptr);
 
@@ -5269,7 +5300,7 @@ RenderStep2:
     }
 
     // YUV->RGB Conversion using Shader
-    if(m_RenderStep2 == RenderStep::CONVERT_SHADER){
+    else if(m_RenderStep2 == RenderStep::CONVERT_SHADER){
 
         resetGraphicsCommand = true;
 
@@ -5289,7 +5320,7 @@ RenderStep2:
     }
 
     // RGB Upscaling using Shader
-    if(m_RenderStep2 == RenderStep::UPSCALE_SHADER){
+    else if(m_RenderStep2 == RenderStep::UPSCALE_SHADER){
 
         resetGraphicsCommand = true;
 
@@ -5309,7 +5340,7 @@ RenderStep2:
     }
 
     // RGB Sharpening using Shader
-    if(m_RenderStep2 == RenderStep::SHARPEN_SHADER){
+    else if(m_RenderStep2 == RenderStep::SHARPEN_SHADER){
 
         resetGraphicsCommand = true;
 
