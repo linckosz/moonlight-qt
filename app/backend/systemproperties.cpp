@@ -281,7 +281,7 @@ void SystemProperties::refreshDisplays()
  * \return bool Returns true if in debug mode
  */
 bool SystemProperties::isVideoEnhancementSwitchable()
-{
+{return true;
 #if defined(QT_DEBUG) && defined(Q_OS_WIN)
     return true;
 #else
