@@ -288,7 +288,7 @@ void SystemProperties::refreshDisplays()
  */
 bool SystemProperties::isVideoEnhancementSwitchable()
 {
-#if defined(QT_DEBUG)
+#if 1
     return true;
 #else
     return false;

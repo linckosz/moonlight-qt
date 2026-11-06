@@ -159,7 +159,7 @@ void StreamingPreferences::reload()
                                                          static_cast<int>(CaptureSysKeysMode::CSK_OFF)).toInt());
     audioConfig = static_cast<AudioConfig>(settings.value(SER_AUDIOCFG,
                                                   static_cast<int>(AudioConfig::AC_STEREO)).toInt());
-#ifdef QT_DEBUG
+#if 1
     superResolutionMode = static_cast<SuperResolutionMode>(settings.value(SER_SUPERRESOLUTIONMODE,
                                                                               static_cast<int>(SuperResolutionMode::SRM_00)).toInt());
 #else
