@@ -18,6 +18,7 @@ extern "C" {
 #include <vector>
 #include <set>
 #include <cmath>
+#include <algorithm>
 
 #ifndef VK_KHR_video_decode_av1
 #define VK_KHR_VIDEO_DECODE_AV1_EXTENSION_NAME "VK_KHR_video_decode_av1"
@@ -176,10 +177,70 @@ PlVkRenderer::PlVkRenderer(AVHWDeviceType hwDeviceType, IFFmpegRenderer *backend
     m_Log = pl_log_create(PL_API_VER, &logParams);
 }
 
+// Test build only: libplacebo's GPU timer of each pass of the video frame (the same reading as plvk_time.c)
+void PlVkRenderer::gpuTimeCallback(void* priv, const struct pl_render_info* info)
+{
+    PlVkRenderer* me = static_cast<PlVkRenderer*>(priv);
+    if (info->stage != PL_RENDER_STAGE_FRAME || info->index < 0 || info->index >= 32) {
+        return;
+    }
+    if ((int)me->m_GpuPassNs.size() <= info->index) {
+        me->m_GpuPassNs.resize(info->index + 1);
+        me->m_GpuPassNames.resize(info->index + 1);
+    }
+    if (me->m_GpuPassNames[info->index].empty() && info->pass->shader && info->pass->shader->description) {
+        me->m_GpuPassNames[info->index] = info->pass->shader->description;
+    }
+    if (info->pass->last > 0) {
+        me->m_GpuPassNs[info->index].push_back((double)info->pass->last);
+    }
+}
+
+// Test build only: the same reading for MWSR's one pass, which is dispatched outside the renderer
+void PlVkRenderer::gpuDispatchTimeCallback(void* priv, const struct pl_dispatch_info* info)
+{
+    PlVkRenderer* me = static_cast<PlVkRenderer*>(priv);
+    const int index = 31;
+    if ((int)me->m_GpuPassNs.size() <= index) {
+        me->m_GpuPassNs.resize(index + 1);
+        me->m_GpuPassNames.resize(index + 1);
+    }
+    if (me->m_GpuPassNames[index].empty() && info->shader && info->shader->description) {
+        me->m_GpuPassNames[index] = info->shader->description;
+    }
+    if (info->last > 0) {
+        me->m_GpuPassNs[index].push_back((double)info->last);
+    }
+}
+
+void PlVkRenderer::logGpuTimes(const char* when)
+{
+    double sum = 0;
+    std::string passes;
+    for (size_t i = 0; i < m_GpuPassNs.size(); i++) {
+        std::vector<double>& ns = m_GpuPassNs[i];
+        if (ns.empty()) {
+            continue;
+        }
+        std::nth_element(ns.begin(), ns.begin() + ns.size() / 2, ns.end());
+        double median = ns[ns.size() / 2] / 1e6;
+        sum += median;
+        char part[160];
+        SDL_snprintf(part, sizeof(part), " | %s: %.4f ms (n %d)", m_GpuPassNames[i].c_str(), median, (int)ns.size());
+        passes += part;
+        ns.clear();
+    }
+    SDL_LogInfo(SDL_LOG_CATEGORY_APPLICATION, "PlVk GPU time (%s): %.4f ms%s", when, sum, passes.c_str());
+}
+
 PlVkRenderer::~PlVkRenderer()
 {
     // The render context must have been cleaned up by now
     SDL_assert(!m_HasPendingSwapchainFrame);
+
+    if (m_GpuTimes) {
+        logGpuTimes("end of stream");
+    }
 
     if (m_Vulkan != nullptr) {
 #ifdef PLVK_USE_EARLY_RENDER_TO_WAIT
@@ -495,6 +556,7 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
 {
     m_Window = params->window;
     m_MaxVideoFps = params->frameRate;
+    m_GpuTimes = qEnvironmentVariableIsSet("MW_PLVK_GPU_TIMES");
 
     unsigned int instanceExtensionCount = 0;
     if (!SDL_Vulkan_GetInstanceExtensions(params->window, &instanceExtensionCount, nullptr)) {
@@ -739,6 +801,9 @@ bool PlVkRenderer::initialize(PDECODER_PARAMETERS params)
             m_MwsrPlanesShader = loadGLSL(":/enhancer/mwsr-up-planes.glsl");
             if (!m_MwsrPlanesShader.empty()) {
                 m_MwsrDispatch = pl_dispatch_create(m_Log, m_Vulkan->gpu);
+                if (m_GpuTimes) {
+                    pl_dispatch_callback(m_MwsrDispatch, this, gpuDispatchTimeCallback);
+                }
             }
             m_MwsrYUV444 = isYUV444;
         }
@@ -1413,6 +1478,10 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         // If the frame is HDR, load the Shader with HDR enabled
         renderParams = (frame->color_trc == AVCOL_TRC_SMPTE2084) ? m_RenderParamsHDR : m_RenderParams;
     }
+    if (m_GpuTimes) {
+        renderParams.info_callback = gpuTimeCallback;
+        renderParams.info_priv = this;
+    }
 
     if (m_VideoEnhancement->isVideoEnhancementEnabled() && renderMwsrPlanes(frame, &mappedFrame, &targetFrame)) {
         // MWSR has drawn the video, only the overlays are left (a NULL image draws them alone)
@@ -1425,6 +1494,9 @@ void PlVkRenderer::renderFrame(AVFrame *frame)
         SDL_LogError(SDL_LOG_CATEGORY_APPLICATION,
                      "pl_render_image() failed");
         // NB: We must fallthrough to call pl_swapchain_submit_frame()
+    }
+    if (m_GpuTimes && ++m_GpuTimeFrames % 600 == 0) {
+        logGpuTimes("last 600 frames");
     }
 
     // Submit the frame for display and swap buffers

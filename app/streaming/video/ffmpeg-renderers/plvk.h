@@ -16,6 +16,9 @@
 
 #include <QFile>
 
+#include <string>
+#include <vector>
+
 #ifdef Q_OS_DARWIN
 class MetalVulkanTextureFactory {
 public:
@@ -166,6 +169,14 @@ private:
     std::string m_MwsrPlanesShader;
     bool m_MwsrYUV444 = false;
     bool m_MwsrPlanesInUse = false;
+    // Test build only: the GPU time of each libplacebo pass, logged every 600 frames when MW_PLVK_GPU_TIMES is set
+    static void gpuTimeCallback(void* priv, const struct pl_render_info* info);
+    static void gpuDispatchTimeCallback(void* priv, const struct pl_dispatch_info* info);
+    void logGpuTimes(const char* when);
+    bool m_GpuTimes = false;
+    int m_GpuTimeFrames = 0;
+    std::vector<std::string> m_GpuPassNames;
+    std::vector<std::vector<double>> m_GpuPassNs;
 
     // Vulkan functions we call directly
     PFN_vkDestroySurfaceKHR fn_vkDestroySurfaceKHR = nullptr;
